@@ -48,12 +48,23 @@ jobs:
         run: |
           choco install miktex --no-progress -y
           miktex_bin='/c/Program Files/MiKTeX/miktex/bin/x64'
-          # Install missing LaTeX packages on demand instead of prompting.
-          "$miktex_bin/initexmf.exe" --admin --set-config-value='[MPM]AutoInstall=1'
+          export PATH="$miktex_bin:$PATH"
+          # Fetch the package database and updates as the administrator, then
+          # install missing LaTeX packages on demand instead of prompting.
+          miktex --admin packages update-package-database
+          miktex --admin packages update
+          initexmf --admin --set-config-value='[MPM]AutoInstall=1'
           cygpath -w "$miktex_bin" >> "$GITHUB_PATH"
 
-      - name: Check XeLaTeX is on PATH
-        run: xelatex --version
+      # Compile once outside pytest so a broken TeX setup fails here with the
+      # full XeLaTeX log, and first-run setup does not happen inside a test.
+      - name: Check XeLaTeX compiles a document
+        working-directory: ${{ runner.temp }}
+        run: |
+          printf '%s\n' '\documentclass{article}' '\usepackage{geometry}' \
+            '\usepackage{graphicx}' '\begin{document}' 'Cardiff' '\end{document}' \
+            > xelatex-check.tex
+          xelatex -interaction=nonstopmode -halt-on-error xelatex-check.tex
 
       - name: Clean transient test work directories
         working-directory: cardiff
