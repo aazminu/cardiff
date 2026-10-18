@@ -108,6 +108,7 @@ python -m pytest tests/cli -q -p no:cacheprovider
 ```
 
 These are the same suites enforced by `.github/workflows/ci.yml` and rerun by `.github/workflows/release.yml`.
+`ci.yml` runs them on both `ubuntu-latest` and `windows-latest` for Python `3.12` and `3.13`, so Windows-only tests such as `test_windows_drive_relative_paths_are_rejected` run in CI instead of being skipped. `release.yml` still verifies on `ubuntu-latest` only.
 
 The broad `python -m pytest tests -q -p no:cacheprovider` command can currently fail if temporary QR work directories or other stray temp directories are still present in the workspace.
 Clean those directories before relying on broad test collection.
