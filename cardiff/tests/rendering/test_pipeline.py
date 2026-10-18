@@ -226,7 +226,7 @@ from unittest.mock import patch
 
 import pytest
 
-from cardiff.contract import load_and_validate_request
+from cardiff.contract import load_and_validate_request, validate_render_request
 from cardiff.contract.errors import ValidationOutcome
 from cardiff.rendering import (
     DeterministicTeXAdapter,
@@ -629,3 +629,93 @@ def test_bundled_template_compiles_with_xelatex(variant, tmp_path):
     assert result.evidence is not None
     assert result.evidence.runtime_name == "xelatex"
     assert (tmp_path / "card.pdf").stat().st_size > 0
+
+
+def _special_character_request():
+    result = validate_render_request(
+        {
+            "identity": {
+                "full_name": "Ada Lovelace",
+                "role": "R&D Lead",
+                "email": "ada_lovelace@example.com",
+                "organization": "Analytical Engine Lab",
+                "website": "https://example.com/~ada",
+                "address_lines": ["#12 Logic St.", "London"],
+            },
+            "template": {"id": "business-card", "options": {"include_qr": True}},
+            "assets": {"logo": "brand/logo.png"},
+        },
+        approved_asset_roots=(APPROVED_ASSETS,),
+    )
+    assert result.outcome == ValidationOutcome.ACCEPTED
+    assert result.request is not None
+    return result.request
+
+
+def test_qr_payload_uses_original_text_while_tex_stays_escaped(tmp_path):
+    request = _special_character_request()
+    qr_payloads: list[str] = []
+
+    def _capture_qr(data, output_path, scale=4):
+        qr_payloads.append(data)
+        return _fake_qr_path(output_path)
+
+    with patch("cardiff.rendering.directives.generate_qr_png", side_effect=_capture_qr):
+        result = render_request_to_pdf(
+            request,
+            tmp_path / "card.pdf",
+            approved_asset_roots=(APPROVED_ASSETS,),
+            tex_adapter=FakeNonDeterministicAdapter(),
+        )
+
+    assert result.status == RenderStatus.SUCCEEDED
+    assert len(qr_payloads) == 1
+    vcard = qr_payloads[0]
+    assert "TITLE:R&D Lead" in vcard
+    assert "EMAIL:ada_lovelace@example.com" in vcard
+    assert "URL:https://example.com/~ada" in vcard
+    assert "textasciitilde" not in vcard
+
+    assert result.rendered_tex is not None
+    assert r"R\&D Lead" in result.rendered_tex
+    assert r"ada\_lovelace@example.com" in result.rendered_tex
+    assert r"\#12 Logic St. \\ London" in result.rendered_tex
+    assert r"\\&" not in result.rendered_tex
+
+
+def test_preview_lines_use_original_text(tmp_path):
+    request = _special_character_request()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=DeterministicTeXAdapter(),
+    )
+
+    assert result.status == RenderStatus.SUCCEEDED
+    assert "Role: R&D Lead" in result.preview_lines
+    assert "Email: ada_lovelace@example.com" in result.preview_lines
+    assert "Address: #12 Logic St." in result.preview_lines
+
+
+def test_unsafe_text_on_a_constructed_request_fails_before_compilation(tmp_path):
+    request = _load_request()
+    unsafe_request = replace(
+        request,
+        identity=replace(request.identity, full_name=r"\input{secret.tex}"),
+    )
+    adapter = CompileTrackingAdapter()
+
+    result = render_request_to_pdf(
+        unsafe_request,
+        tmp_path / "card.pdf",
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEX_COMPILE_FAILED
+    assert any("identity.full_name" in message for message in result.diagnostics)
+    assert adapter.compile_calls == 0
+    assert not (tmp_path / "card.pdf").exists()

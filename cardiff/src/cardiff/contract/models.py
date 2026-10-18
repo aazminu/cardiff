@@ -309,7 +309,7 @@ class IdentityProfile:
 
 @dataclass(frozen=True, slots=True)
 class RenderRequest:
-    """Sanitized canonical render request."""
+    """Validated canonical render request; text is checked but not TeX-escaped."""
 
     identity: IdentityProfile
     template: TemplateSelection

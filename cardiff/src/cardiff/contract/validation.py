@@ -236,7 +236,12 @@ from .models import (
     ValidationIssue,
     ValidationResult,
 )
-from .sanitization import UnsafeContentError, normalize_text, sanitize_text
+from .sanitization import (
+    UnsafeContentError,
+    normalize_text,
+    reject_unsafe_text,
+    sanitize_text,
+)
 
 IDENTITY_REQUIRED_FIELDS = ("full_name", "role", "email")
 IDENTITY_OPTIONAL_FIELDS = ("phone", "organization", "department", "website", "pronouns")
@@ -267,7 +272,11 @@ def validate_render_request(
     source_name: str = "<memory>",
     source_format: str = "yaml",
 ) -> ValidationResult:
-    """Validate a parsed mapping and return a sanitized canonical request."""
+    """Validate a parsed mapping and return a canonical request.
+
+    Identity text is normalized and checked for unsafe render fragments, but it is
+    stored as the user wrote it. Use ``sanitize_render_fields`` for TeX-ready text.
+    """
 
     issues: list[ValidationIssue] = []
     approved_roots = normalize_approved_asset_roots(tuple(approved_asset_roots or ()))
@@ -317,7 +326,12 @@ def validate_render_request(
 
 
 def sanitize_render_fields(render_request: RenderRequest) -> RenderRequest:
-    """Apply the canonical sanitization rules to an already-typed request."""
+    """Return a TeX-ready copy of a canonical request.
+
+    Expects unescaped text, such as a request accepted by ``validate_render_request``.
+    Unsafe render fragments raise ``UnsafeContentError``; LaTeX-significant characters
+    are escaped exactly once.
+    """
 
     identity = render_request.identity
     sanitized_identity = IdentityProfile(
@@ -782,7 +796,7 @@ def _validate_text_field(
         return None, issues
 
     try:
-        sanitized = sanitize_text(normalized, field_name=field_name)
+        checked = reject_unsafe_text(normalized, field_name=field_name)
     except UnsafeContentError as error:
         issues.append(
             ValidationIssue(
@@ -793,7 +807,7 @@ def _validate_text_field(
         )
         return None, issues
 
-    return sanitized, issues
+    return checked, issues
 
 
 def _key_label(key: object) -> str:

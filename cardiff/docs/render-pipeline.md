@@ -24,7 +24,7 @@ Each template package must currently provide:
 3. Check that the request provides every identity field listed in the manifest's `required_identity_fields`.
 4. Resolve required asset paths against the caller-provided approved asset roots.
 5. Validate that every template placeholder maps to a supported render field.
-6. Materialize TeX by applying the canonical request data to the approved template.
+6. Materialize TeX by applying the canonical request data to the approved template. Identity text is LaTeX-escaped at this step (through `sanitize_render_fields`), so the TeX output is escaped exactly once while the QR vCard payload and the deterministic preview use the original text.
 7. Compile through a TeX adapter.
 8. Return `RenderResult` plus normalized evidence fingerprints.
 
@@ -71,7 +71,7 @@ assert render_result.succeeded
 The normalized evidence record captures:
 
 - normalized manifest fingerprint from parsed manifest JSON instead of raw checkout bytes
-- canonical request fingerprint from the sanitized request payload without source path or source-format metadata
+- canonical request fingerprint from the validated (unescaped) request payload without source path or source-format metadata
 - rendered TeX fingerprint
 - PDF fingerprint
 - adapter runtime name and version

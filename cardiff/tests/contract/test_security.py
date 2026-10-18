@@ -222,8 +222,16 @@ from pathlib import Path
 
 import pytest
 
-from cardiff.contract import AssetReference, load_and_validate_request, validate_asset_reference
+from cardiff.contract import (
+    AssetReference,
+    load_and_validate_request,
+    sanitize_render_fields,
+    validate_asset_reference,
+    validate_render_request,
+)
 from cardiff.contract.errors import ValidationCode, ValidationOutcome
+from cardiff.contract.models import IdentityProfile, RenderRequest, TemplateSelection
+from cardiff.contract.sanitization import UnsafeContentError
 
 APPROVED_ASSETS = Path(__file__).resolve().parents[1] / "fixtures" / "approved-assets"
 APPROVED_LOGO = APPROVED_ASSETS / "brand" / "logo.png"
@@ -339,3 +347,71 @@ template:
     assert result.outcome == ValidationOutcome.REJECTED
     assert result.issues[0].code == ValidationCode.UNSAFE_CONTENT
     assert result.issues[0].field == "identity.full_name"
+
+
+def _accepted_request(**identity_overrides):
+    identity = {
+        "full_name": "Ada Lovelace",
+        "role": "R&D Lead",
+        "email": "ada_lovelace@example.com",
+    }
+    identity.update(identity_overrides)
+    result = validate_render_request(
+        {"identity": identity, "template": {"id": "business-card"}}
+    )
+    assert result.outcome == ValidationOutcome.ACCEPTED
+    assert result.request is not None
+    return result.request
+
+
+def test_sanitize_render_fields_escapes_an_accepted_request_exactly_once():
+    sanitized = sanitize_render_fields(
+        _accepted_request(website="https://example.com/~ada")
+    )
+
+    assert sanitized.identity.full_name == "Ada Lovelace"
+    assert sanitized.identity.role == r"R\&D Lead"
+    assert sanitized.identity.email == r"ada\_lovelace@example.com"
+    assert sanitized.identity.website == r"https://example.com/\textasciitilde{}ada"
+
+
+@pytest.mark.parametrize(
+    "seeded_value",
+    [r"\input{x}", r"\textbf{x}", r"\&", r"\write18{rm -rf /}", "{{ email }}"],
+)
+def test_sanitize_render_fields_rejects_seeded_tex_on_constructed_requests(seeded_value):
+    request = RenderRequest(
+        identity=IdentityProfile(
+            full_name=seeded_value,
+            role="Engineer",
+            email="ada@example.com",
+        ),
+        template=TemplateSelection(template_id="business-card"),
+    )
+
+    with pytest.raises(UnsafeContentError):
+        sanitize_render_fields(request)
+
+
+@pytest.mark.parametrize(
+    "seeded_value",
+    [r"\input{x}", r"\textbf{x}", r"\&", r"\write18{rm -rf /}", "{{ email }}"],
+)
+def test_validation_rejects_seeded_tex_in_every_text_position(seeded_value):
+    for field_name in ("full_name", "role", "email", "organization", "website"):
+        value = f"{seeded_value}@x" if field_name == "email" else seeded_value
+        result = validate_render_request(
+            {
+                "identity": {
+                    "full_name": "Ada Lovelace",
+                    "role": "Engineer",
+                    "email": "ada@example.com",
+                    field_name: value,
+                },
+                "template": {"id": "business-card"},
+            }
+        )
+
+        assert result.outcome == ValidationOutcome.REJECTED
+        assert result.issues[0].code == ValidationCode.UNSAFE_CONTENT
+        assert result.issues[0].field == f"identity.{field_name}"

@@ -225,7 +225,8 @@ from pathlib import Path
 import re
 
 from cardiff.contract.models import RenderRequest
-from cardiff.contract.sanitization import LATEX_ESCAPE_MAP
+from cardiff.contract.sanitization import LATEX_ESCAPE_MAP, UnsafeContentError
+from cardiff.contract.validation import sanitize_render_fields
 
 from .directives import (
     CARDIFF_QR_FILENAME,
@@ -382,7 +383,14 @@ def _build_placeholder_values(
     render_request: RenderRequest,
     resolved_assets: dict[str, Path],
 ) -> dict[str, str]:
-    identity = render_request.identity
+    # The canonical request keeps the user's text; TeX gets an escaped copy.
+    try:
+        identity = sanitize_render_fields(render_request).identity
+    except UnsafeContentError as error:
+        raise RenderingError(
+            RenderFailureClass.TEX_COMPILE_FAILED,
+            f"refusing to render unsafe request text: {error}",
+        ) from error
     options = render_request.template.options
     address_lines = tuple(identity.address_lines)
     logo_path = resolved_assets.get("logo")
@@ -403,7 +411,7 @@ def _build_placeholder_values(
 
 
 def _escape_tex_option(value: str) -> str:
-    # Option values are validated but, unlike identity text, not escaped by the contract layer.
+    # Option values are validated but, unlike identity text, not escaped through sanitize_render_fields.
     escaped = value
     for character, replacement in LATEX_ESCAPE_MAP.items():
         escaped = escaped.replace(character, replacement)
