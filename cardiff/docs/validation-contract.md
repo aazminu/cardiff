@@ -67,6 +67,7 @@ Each issue includes:
 - JSON and YAML are both accepted, but both normalize into the same canonical request structure.
 - Validation errors are returned before any render pipeline exists.
 - Unknown fields are rejected instead of ignored so downstream CLI, batch, and API consumers cannot drift silently.
+- Field names must be strings. YAML 1.1 keys such as `1`, `on`, `yes`, or `null` load as non-string values; they are rejected as `unknown_field` with a string `field` label (for example `"1"`, `"identity.True"`, or `"assets.None"`), even when that label matches a supported name.
 - Sanitized requests preserve the original business meaning while escaping LaTeX-significant characters for later rendering stages.
 
 ## Approved Template Notes
