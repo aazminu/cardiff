@@ -228,11 +228,16 @@ TemplateOptionValue = str | bool
 
 @dataclass(frozen=True, slots=True)
 class RawRequestDocument:
-    """A parsed source document before canonical validation."""
+    """A parsed source document before canonical validation.
+
+    ``decode_error`` is set (and ``content`` is empty) when a request file's
+    bytes could not be decoded as UTF-8.
+    """
 
     source_name: str
     source_format: str
     content: str
+    decode_error: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

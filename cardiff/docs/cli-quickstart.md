@@ -14,6 +14,8 @@ python -m cardiff validate tests/fixtures/requests/valid-request.yaml --approved
 
 The command prints one JSON status object to standard output and returns exit code `0` when the request is accepted.
 
+Request files must be UTF-8 encoded. A leading UTF-8 byte-order mark is accepted for both JSON and YAML. Files that are not valid UTF-8 (for example UTF-16 files saved by some Windows editors or shells) are rejected with a `contract_error` issue on field `$` and exit code `1`, for both `validate` and `render`. Re-save such files as UTF-8.
+
 ## Render One PDF
 
 ```bash
@@ -24,6 +26,7 @@ Behavior:
 
 - The request is validated before any render work starts.
 - Unknown template placeholders fail before PDF generation starts and surface a render failure class in the JSON payload.
+- Requests missing an identity field listed in the template manifest's `required_identity_fields` fail before PDF generation with exit code `3` and `failure_class` `template_field_missing`.
 - Parent directories for the output PDF are created automatically when needed.
 - The CLI reports the resolved source path, template ID, output path, and runtime metadata in its JSON status payload.
 - `--deterministic` forces the deterministic adapter even if `xelatex` is installed locally.
@@ -41,7 +44,7 @@ The reference-evidence comparison normalizes the template manifest and the canon
 ## Exit Codes
 
 - `0`: command succeeded
-- `1`: canonical validation rejected the request
+- `1`: canonical validation rejected the request, including request files that cannot be decoded as UTF-8 (`contract_error`)
 - `2`: CLI usage or required file/path error
 - `3`: render pipeline failure after validation succeeded
 - `4`: render succeeded but reference-evidence comparison failed

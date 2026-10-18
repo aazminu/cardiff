@@ -291,14 +291,13 @@ def validate_render_request(
         )
         return ValidationResult(outcome=ValidationOutcome.REJECTED, issues=_finalize_issues(issues))
 
-    unknown_top_level = sorted(set(payload) - TOP_LEVEL_FIELDS)
     issues.extend(
         ValidationIssue(
             code=ValidationCode.UNKNOWN_FIELD,
-            field=field,
-            message=f"unsupported top-level field '{field}'",
+            field=_key_label(field),
+            message=_unknown_key_message("top-level field", field),
         )
-        for field in unknown_top_level
+        for field in _unknown_keys(payload, TOP_LEVEL_FIELDS)
     )
 
     identity_data = payload.get("identity")
@@ -396,8 +395,10 @@ def validate_asset_reference(
             ]
         )
 
+    asset_path = Path(candidate)
+    # urlparse reads a Windows drive letter as a scheme; only exempt platform-absolute paths.
     parsed = urlparse(candidate)
-    if parsed.scheme and not re.match(r"^[a-zA-Z]:$", parsed.scheme):
+    if parsed.scheme and not asset_path.is_absolute():
         return _finalize_issues(
             [
                 ValidationIssue(
@@ -408,7 +409,6 @@ def validate_asset_reference(
             ]
         )
 
-    asset_path = Path(candidate)
     if asset_path.is_absolute():
         normalized = asset_path.resolve()
         if not any(normalized.is_relative_to(root) for root in resolved_roots):
@@ -482,10 +482,10 @@ def _validate_identity(payload: object) -> tuple[dict[str, object], list[Validat
     issues.extend(
         ValidationIssue(
             code=ValidationCode.UNKNOWN_FIELD,
-            field=f"identity.{field}",
-            message=f"unsupported identity field '{field}'",
+            field=f"identity.{_key_label(field)}",
+            message=_unknown_key_message("identity field", field),
         )
-        for field in sorted(set(payload) - IDENTITY_ALLOWED_FIELDS)
+        for field in _unknown_keys(payload, IDENTITY_ALLOWED_FIELDS)
     )
 
     identity_fields: dict[str, object] = {}
@@ -543,10 +543,10 @@ def _validate_template(payload: object) -> tuple[TemplateSelection, list[Validat
     issues.extend(
         ValidationIssue(
             code=ValidationCode.UNKNOWN_FIELD,
-            field=f"template.{field}",
-            message=f"unsupported template field '{field}'",
+            field=f"template.{_key_label(field)}",
+            message=_unknown_key_message("template field", field),
         )
-        for field in sorted(set(payload) - TEMPLATE_FIELDS)
+        for field in _unknown_keys(payload, TEMPLATE_FIELDS)
     )
 
     template_id = payload.get("id")
@@ -593,10 +593,10 @@ def _validate_template(payload: object) -> tuple[TemplateSelection, list[Validat
     issues.extend(
         ValidationIssue(
             code=ValidationCode.UNKNOWN_FIELD,
-            field=f"template.options.{field}",
-            message=f"unsupported template option '{field}'",
+            field=f"template.options.{_key_label(field)}",
+            message=_unknown_key_message("template option", field),
         )
-        for field in sorted(set(options_payload) - set(TEMPLATE_OPTION_RULES))
+        for field in _unknown_keys(options_payload, TEMPLATE_OPTION_RULES)
     )
 
     for option_name, expected_type in TEMPLATE_OPTION_RULES.items():
@@ -666,14 +666,14 @@ def _validate_assets(
         ]
 
     assets: dict[str, AssetReference] = {}
-    for slot in sorted(payload):
+    for slot in _sorted_keys(payload):
         raw_value = payload[slot]
-        if slot not in ASSET_SLOTS:
+        if not isinstance(slot, str) or slot not in ASSET_SLOTS:
             issues.append(
                 ValidationIssue(
                     code=ValidationCode.UNKNOWN_FIELD,
-                    field=f"assets.{slot}",
-                    message=f"unsupported asset slot '{slot}'",
+                    field=f"assets.{_key_label(slot)}",
+                    message=_unknown_key_message("asset slot", slot),
                 )
             )
             continue
@@ -808,6 +808,28 @@ def _validate_text_field(
         return None, issues
 
     return checked, issues
+
+
+def _key_label(key: object) -> str:
+    return key if isinstance(key, str) else str(key)
+
+
+def _sorted_keys(keys: Iterable[object]) -> list[object]:
+    # YAML 1.1 can load keys such as `1`, `on`, or `null` as int/bool/None, which
+    # do not order against str; sort on the string label with stable tie-breakers.
+    return sorted(keys, key=lambda key: (_key_label(key), not isinstance(key, str), type(key).__name__))
+
+
+def _unknown_keys(payload: Mapping[object, object], allowed: Iterable[str]) -> list[object]:
+    allowed_names = frozenset(allowed)
+    return _sorted_keys(key for key in payload if not (isinstance(key, str) and key in allowed_names))
+
+
+def _unknown_key_message(kind: str, key: object) -> str:
+    message = f"unsupported {kind} '{_key_label(key)}'"
+    if not isinstance(key, str):
+        message += f" (field names must be strings, got {type(key).__name__})"
+    return message
 
 
 def _finalize_issues(issues: Iterable[ValidationIssue]) -> tuple[ValidationIssue, ...]:

@@ -18,6 +18,7 @@ Canonical references:
 - Supported variants: `default` only
 - Required asset slots for the approved template: `logo`
 - Optional asset slots for the approved template: none
+- Required identity fields for the approved template: `full_name`, `role`, `email`
 
 The shared contract can validate fields that the current approved template does not use yet. For Unit 2 review, contributors should treat the manifest as the final source of truth for template-specific support.
 
@@ -55,6 +56,7 @@ Current approved business-card rendering boundary:
 - `assets.logo` is the only asset slot required by the approved business-card template.
 - `assets.avatar` is not part of the approved business-card manifest and is not used by the current render path.
 - Contributors should not submit business-card template changes that depend on new fields, new asset slots, or extra top-level request keys unless the validation contract and manifest are updated together.
+- `required_identity_fields` in the manifest is enforced at render time. A request that omits a listed field fails before PDF generation with `template_field_missing`, and a manifest that lists a name outside the identity fields above fails with `template_manifest_invalid`.
 
 Supported render placeholders today:
 

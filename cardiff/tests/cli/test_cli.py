@@ -421,6 +421,153 @@ def test_python_dash_m_entrypoint_supports_validate_command():
     assert payload['template_id'] == 'business-card'
 
 
+def test_validate_command_rejects_non_string_top_level_key_without_traceback(tmp_path):
+    request_path = tmp_path / 'case-a.yaml'
+    request_path.write_text('1: stray\ntemplate:\n  id: business-card\n', encoding='utf-8')
+
+    completed = subprocess.run(
+        [sys.executable, '-m', 'cardiff', 'validate', request_path.as_posix()],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert 'Traceback' not in completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload['status'] == 'rejected'
+    assert payload['exit_code'] == 1
+    assert {'code': 'unknown_field', 'field': '1'} in [
+        {'code': issue['code'], 'field': issue['field']} for issue in payload['issues']
+    ]
+
+
+def test_validate_command_rejects_non_string_asset_key_without_traceback(tmp_path):
+    request_path = tmp_path / 'case-b.yaml'
+    request_path.write_text(
+        'identity:\n'
+        '  full_name: A\n'
+        '  role: B\n'
+        '  email: a@b.c\n'
+        'template:\n'
+        '  id: business-card\n'
+        'assets:\n'
+        '  1: x.png\n'
+        '  logo: brand/logo.png\n',
+        encoding='utf-8',
+    )
+
+    exit_code, payload, stderr = _run_cli(
+        [
+            'validate',
+            request_path.as_posix(),
+            '--approved-asset-root',
+            APPROVED_ASSETS.as_posix(),
+        ]
+    )
+
+    assert exit_code == 1
+    assert 'Traceback' not in stderr
+    assert payload['status'] == 'rejected'
+    assert [(issue['code'], issue['field']) for issue in payload['issues']] == [
+        ('unknown_field', 'assets.1'),
+    ]
+
+
+def _write_reencoded_request(tmp_path: Path, fixture_name: str, encoding: str) -> Path:
+    source = FIXTURES_ROOT / 'requests' / fixture_name
+    target = tmp_path / fixture_name
+    target.write_text(source.read_text(encoding='utf-8'), encoding=encoding)
+    return target
+
+
+def _run_cli_subprocess(argv: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, '-m', 'cardiff', *argv],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_validate_command_accepts_utf8_bom_json_and_yaml(tmp_path):
+    for fixture_name, expected_format in (('valid-request.json', 'json'), ('valid-request.yaml', 'yaml')):
+        request_path = _write_reencoded_request(tmp_path, fixture_name, 'utf-8-sig')
+
+        exit_code, payload, _ = _run_cli(
+            [
+                'validate',
+                request_path.as_posix(),
+                '--approved-asset-root',
+                APPROVED_ASSETS.as_posix(),
+            ]
+        )
+
+        assert exit_code == 0, fixture_name
+        assert payload['status'] == 'accepted'
+        assert payload['source']['format'] == expected_format
+        assert payload['template_id'] == 'business-card'
+
+
+def test_validate_command_rejects_utf16_request_without_traceback(tmp_path):
+    request_path = _write_reencoded_request(tmp_path, 'valid-request.yaml', 'utf-16')
+
+    completed = _run_cli_subprocess(
+        [
+            'validate',
+            request_path.as_posix(),
+            '--approved-asset-root',
+            APPROVED_ASSETS.as_posix(),
+        ]
+    )
+
+    assert completed.returncode == 1
+    assert 'Traceback' not in completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload['command'] == 'validate'
+    assert payload['status'] == 'rejected'
+    assert payload['exit_code'] == 1
+    assert payload['source']['format'] == 'yaml'
+    assert payload['template_id'] is None
+    assert payload['issues'] == [
+        {
+            'code': 'contract_error',
+            'field': '$',
+            'message': 'request files must be UTF-8 encoded; detected a UTF-16 byte-order mark',
+            'severity': 'error',
+        }
+    ]
+
+
+def test_render_command_rejects_utf16_request_without_traceback(tmp_path):
+    request_path = _write_reencoded_request(tmp_path, 'valid-request.yaml', 'utf-16')
+    output_path = tmp_path / 'out.pdf'
+
+    completed = _run_cli_subprocess(
+        [
+            'render',
+            request_path.as_posix(),
+            '--approved-asset-root',
+            APPROVED_ASSETS.as_posix(),
+            '--output',
+            output_path.as_posix(),
+            '--deterministic',
+        ]
+    )
+
+    assert completed.returncode == 1
+    assert 'Traceback' not in completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload['command'] == 'render'
+    assert payload['status'] == 'rejected'
+    assert payload['failure_stage'] == 'validation'
+    assert payload['exit_code'] == 1
+    assert [issue['code'] for issue in payload['issues']] == ['contract_error']
+    assert not output_path.exists()
+
+
 # ==============================================================================
 # Tests for compare_reference_evidence (fixes #8)
 # ==============================================================================

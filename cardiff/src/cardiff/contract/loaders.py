@@ -219,6 +219,7 @@
 
 from __future__ import annotations
 
+import codecs
 from collections.abc import Mapping
 import io
 import json
@@ -229,6 +230,14 @@ import yaml
 from .errors import ValidationCode, ValidationOutcome
 from .models import RawRequestDocument, ValidationIssue, ValidationResult
 from .validation import validate_render_request
+
+# UTF-32 BOMs are checked first because the UTF-32-LE BOM begins with the UTF-16-LE BOM.
+_UNSUPPORTED_BOMS = (
+    (codecs.BOM_UTF32_LE, "UTF-32"),
+    (codecs.BOM_UTF32_BE, "UTF-32"),
+    (codecs.BOM_UTF16_LE, "UTF-16"),
+    (codecs.BOM_UTF16_BE, "UTF-16"),
+)
 
 
 def load_request_document(source: str | Path | io.TextIOBase, *, source_name: str | None = None) -> RawRequestDocument:
@@ -244,21 +253,11 @@ def load_request_document(source: str | Path | io.TextIOBase, *, source_name: st
         )
 
     if isinstance(source, Path):
-        text = source.read_text(encoding="utf-8")
-        return RawRequestDocument(
-            source_name=str(source),
-            source_format=_guess_source_format(text, source.name),
-            content=text,
-        )
+        return _load_request_file(source)
 
     candidate_path = Path(source)
     if source_name is None and candidate_path.exists():
-        text = candidate_path.read_text(encoding="utf-8")
-        return RawRequestDocument(
-            source_name=str(candidate_path),
-            source_format=_guess_source_format(text, candidate_path.name),
-            content=text,
-        )
+        return _load_request_file(candidate_path)
 
     inferred_name = source_name or "<memory>"
     return RawRequestDocument(
@@ -274,6 +273,14 @@ def parse_render_request(
     approved_asset_roots: tuple[str | Path, ...] | None = None,
 ) -> ValidationResult:
     """Parse and validate a raw request document."""
+
+    if raw_document.decode_error is not None:
+        issue = ValidationIssue(
+            code=ValidationCode.CONTRACT_ERROR,
+            field="$",
+            message=raw_document.decode_error,
+        )
+        return ValidationResult(outcome=ValidationOutcome.REJECTED, issues=(issue,))
 
     try:
         payload = _decode_mapping(raw_document)
@@ -310,6 +317,32 @@ def load_and_validate_request(
 
     raw_document = load_request_document(source, source_name=source_name)
     return parse_render_request(raw_document, approved_asset_roots=approved_asset_roots)
+
+
+def _load_request_file(path: Path) -> RawRequestDocument:
+    data = path.read_bytes()
+    try:
+        # utf-8-sig strips an optional UTF-8 BOM so JSON and YAML treat it identically.
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError as error:
+        return RawRequestDocument(
+            source_name=str(path),
+            source_format=_guess_source_format("", path.name),
+            content="",
+            decode_error=_describe_decode_error(data, error),
+        )
+    return RawRequestDocument(
+        source_name=str(path),
+        source_format=_guess_source_format(text, path.name),
+        content=text,
+    )
+
+
+def _describe_decode_error(data: bytes, error: UnicodeDecodeError) -> str:
+    for bom, encoding_name in _UNSUPPORTED_BOMS:
+        if data.startswith(bom):
+            return f"request files must be UTF-8 encoded; detected a {encoding_name} byte-order mark"
+    return f"request files must be UTF-8 encoded: {error}"
 
 
 def _decode_mapping(raw_document: RawRequestDocument) -> Mapping[str, object]:

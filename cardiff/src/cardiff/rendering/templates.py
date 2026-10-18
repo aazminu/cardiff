@@ -219,10 +219,11 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 import json
 from pathlib import Path
 
-from cardiff.contract.models import RenderRequest, TemplateSelection
+from cardiff.contract.models import IdentityProfile, RenderRequest, TemplateSelection
 from cardiff.paths import normalize_approved_asset_roots
 
 from .models import (
@@ -231,6 +232,8 @@ from .models import (
     ResolvedTemplate,
     TemplateDescriptor,
 )
+
+KNOWN_IDENTITY_FIELDS = frozenset(field.name for field in fields(IdentityProfile))
 
 
 def get_default_template_root() -> Path:
@@ -318,6 +321,35 @@ def resolve_asset_paths(
     return resolved_assets
 
 
+def validate_required_identity_fields(
+    render_request: RenderRequest,
+    resolved_template: ResolvedTemplate,
+) -> None:
+    """Reject requests that omit identity fields the template manifest requires."""
+
+    missing = [
+        field_name
+        for field_name in resolved_template.descriptor.required_identity_fields
+        if not _identity_field_present(getattr(render_request.identity, field_name, None))
+    ]
+    if missing:
+        names = ", ".join(f"'identity.{field_name}'" for field_name in missing)
+        raise RenderingError(
+            RenderFailureClass.TEMPLATE_FIELD_MISSING,
+            f"template '{resolved_template.descriptor.template_id}' requires identity fields missing from the request: {names}",
+        )
+
+
+def _identity_field_present(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, tuple):
+        return any(isinstance(item, str) and item.strip() for item in value)
+    return True
+
+
 def _load_descriptor(manifest_path: Path) -> TemplateDescriptor:
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -354,6 +386,13 @@ def _load_descriptor(manifest_path: Path) -> TemplateDescriptor:
     required_asset_slots = _validate_string_list(payload.get("required_asset_slots", []), "required_asset_slots")
     optional_asset_slots = _validate_string_list(payload.get("optional_asset_slots", []), "optional_asset_slots")
     required_identity_fields = _validate_string_list(payload.get("required_identity_fields", ["full_name", "role", "email"]), "required_identity_fields")
+    unknown_identity_fields = sorted(set(required_identity_fields) - KNOWN_IDENTITY_FIELDS)
+    if unknown_identity_fields:
+        names = ", ".join(f"'{field_name}'" for field_name in unknown_identity_fields)
+        raise RenderingError(
+            RenderFailureClass.TEMPLATE_MANIFEST_INVALID,
+            f"manifest field 'required_identity_fields' lists unknown identity fields: {names}",
+        )
 
     return TemplateDescriptor(
         template_id=payload["template_id"],

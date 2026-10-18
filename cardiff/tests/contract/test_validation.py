@@ -217,12 +217,20 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
-from cardiff.contract import load_and_validate_request
+import pytest
+
+from cardiff.contract import load_and_validate_request, load_request_document
 from cardiff.contract.errors import ValidationCode, ValidationOutcome
+from cardiff.contract.validation import validate_render_request
 
 APPROVED_ASSETS = Path(__file__).resolve().parents[1] / "fixtures" / "approved-assets"
+REQUESTS_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "requests"
+
+# PyYAML (YAML 1.1) loads these keys as int, bool, and None respectively.
+NON_STRING_YAML_KEYS = (("1", "1"), ("on", "True"), ("null", "None"))
 
 
 def test_missing_required_fields_fail_before_rendering():
@@ -334,3 +342,167 @@ assets:
     assert len(result.issues) == 1
     assert result.issues[0].code == ValidationCode.INVALID_ASSET_PATH
     assert result.issues[0].field == "assets.logo"
+
+VALID_IDENTITY_YAML = """
+identity:
+  full_name: "Ada Lovelace"
+  role: "Engineer"
+  email: "ada@example.com"
+"""
+
+NON_STRING_KEY_CASES = {
+    "top-level": (
+        "{key}: stray\nextra: stray\ntemplate:\n  id: business-card\n",
+        ["{label}", "extra", "identity"],
+    ),
+    "identity": (
+        VALID_IDENTITY_YAML + "  {key}: stray\n  nickname: stray\ntemplate:\n  id: business-card\n",
+        ["identity.{label}", "identity.nickname"],
+    ),
+    "template": (
+        VALID_IDENTITY_YAML + "template:\n  id: business-card\n  {key}: stray\n",
+        ["template.{label}"],
+    ),
+    "template.options": (
+        VALID_IDENTITY_YAML
+        + "template:\n  id: business-card\n  options:\n    {key}: stray\n    unsupported: true\n",
+        ["template.options.{label}", "template.options.unsupported"],
+    ),
+    "assets": (
+        VALID_IDENTITY_YAML
+        + "template:\n  id: business-card\nassets:\n  {key}: x.png\n  logo: brand/logo.png\n",
+        ["assets.{label}"],
+    ),
+}
+
+
+@pytest.mark.parametrize("yaml_key,label", NON_STRING_YAML_KEYS)
+@pytest.mark.parametrize("level", sorted(NON_STRING_KEY_CASES))
+def test_non_string_yaml_keys_are_rejected_as_unknown_string_fields(level, yaml_key, label):
+    template, expected_fields = NON_STRING_KEY_CASES[level]
+
+    result = load_and_validate_request(
+        template.format(key=yaml_key),
+        source_name="invalid.yaml",
+        approved_asset_roots=(APPROVED_ASSETS,),
+    )
+
+    assert result.outcome == ValidationOutcome.REJECTED
+    assert result.request is None
+    assert [issue.field for issue in result.issues] == [field.format(label=label) for field in expected_fields]
+    non_string_issue = next(issue for issue in result.issues if issue.field == expected_fields[0].format(label=label))
+    assert non_string_issue.code == ValidationCode.UNKNOWN_FIELD
+    assert "field names must be strings" in non_string_issue.message
+
+
+def test_every_issue_field_is_a_string_for_int_bool_and_null_keys():
+    payload = {
+        1: "stray",
+        False: "stray",
+        None: "stray",
+        "identity": {"full_name": "Ada", "role": "Engineer", "email": "ada@example.com", 2: "x", False: "x"},
+        "template": {"id": "business-card", None: "x", "options": {3: "x", True: "x", None: "x"}},
+        "assets": {4: "x.png", True: "x.png", None: "x.png", "logo": "brand/logo.png"},
+    }
+
+    result = validate_render_request(payload, approved_asset_roots=(APPROVED_ASSETS,))
+
+    assert result.outcome == ValidationOutcome.REJECTED
+    assert result.issues
+    assert all(isinstance(issue.field, str) for issue in result.issues)
+    assert all(issue.code == ValidationCode.UNKNOWN_FIELD for issue in result.issues)
+
+
+def test_non_string_key_matching_a_supported_name_is_still_unknown():
+    class LookalikeKey:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __str__(self) -> str:
+            return self.name
+
+    payload = {
+        LookalikeKey("template"): "stray",
+        "identity": {"full_name": "Ada", "role": "Engineer", "email": "ada@example.com"},
+        "template": {"id": "business-card"},
+        "assets": {LookalikeKey("logo"): "brand/logo.png"},
+    }
+
+    result = validate_render_request(payload, approved_asset_roots=(APPROVED_ASSETS,))
+
+    assert result.outcome == ValidationOutcome.REJECTED
+    assert [(issue.code, issue.field) for issue in result.issues] == [
+        (ValidationCode.UNKNOWN_FIELD, "assets.logo"),
+        (ValidationCode.UNKNOWN_FIELD, "template"),
+    ]
+    assert result.issues[0].message == "unsupported asset slot 'logo' (field names must be strings, got LookalikeKey)"
+
+
+@pytest.mark.parametrize("fixture_name", ["valid-request.json", "valid-request.yaml"])
+@pytest.mark.parametrize("as_string_path", [False, True])
+def test_utf8_bom_request_files_validate_like_plain_utf8(tmp_path, fixture_name, as_string_path):
+    source = REQUESTS_ROOT / fixture_name
+    bom_copy = tmp_path / fixture_name
+    bom_copy.write_text(source.read_text(encoding="utf-8"), encoding="utf-8-sig")
+    assert bom_copy.read_bytes().startswith(b"\xef\xbb\xbf")
+
+    result = load_and_validate_request(
+        str(bom_copy) if as_string_path else bom_copy,
+        approved_asset_roots=(APPROVED_ASSETS,),
+    )
+    plain_result = load_and_validate_request(source, approved_asset_roots=(APPROVED_ASSETS,))
+
+    assert result.outcome == ValidationOutcome.ACCEPTED
+    assert result.issues == ()
+    assert result.request.identity == plain_result.request.identity
+    assert result.request.template == plain_result.request.template
+    assert result.request.source_format == plain_result.request.source_format
+
+
+@pytest.mark.parametrize(
+    ("encoding", "expected_message"),
+    [
+        ("utf-16", "request files must be UTF-8 encoded; detected a UTF-16 byte-order mark"),
+        ("utf-32", "request files must be UTF-8 encoded; detected a UTF-32 byte-order mark"),
+    ],
+)
+def test_request_files_with_non_utf8_bom_are_rejected_as_contract_errors(tmp_path, encoding, expected_message):
+    request_path = tmp_path / "request.yaml"
+    request_path.write_text((REQUESTS_ROOT / "valid-request.yaml").read_text(encoding="utf-8"), encoding=encoding)
+
+    result = load_and_validate_request(request_path, approved_asset_roots=(APPROVED_ASSETS,))
+
+    assert result.outcome == ValidationOutcome.REJECTED
+    assert result.request is None
+    assert [(issue.code, issue.field, issue.message) for issue in result.issues] == [
+        (ValidationCode.CONTRACT_ERROR, "$", expected_message),
+    ]
+
+
+def test_undecodable_request_bytes_are_rejected_without_lossy_decoding(tmp_path):
+    request_path = tmp_path / "request.json"
+    request_path.write_bytes(b'{"identity": {"full_name": "Jos\xe9"}}')
+
+    raw_document = load_request_document(request_path)
+    result = load_and_validate_request(request_path)
+
+    assert raw_document.content == ""
+    assert raw_document.source_format == "json"
+    assert raw_document.decode_error is not None
+    assert result.outcome == ValidationOutcome.REJECTED
+    assert len(result.issues) == 1
+    assert result.issues[0].code == ValidationCode.CONTRACT_ERROR
+    assert result.issues[0].field == "$"
+    assert result.issues[0].message.startswith("request files must be UTF-8 encoded: 'utf-8' codec can't decode byte 0xe9")
+
+
+def test_stream_and_raw_string_inputs_are_unchanged():
+    text = (REQUESTS_ROOT / "valid-request.yaml").read_text(encoding="utf-8")
+
+    from_stream = load_request_document(io.StringIO(text), source_name="stream.yaml")
+    from_string = load_request_document(text, source_name="inline.yaml")
+
+    assert from_stream.content == text
+    assert from_string.content == text
+    assert from_stream.decode_error is None
+    assert from_string.decode_error is None

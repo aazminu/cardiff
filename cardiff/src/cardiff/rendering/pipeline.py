@@ -225,7 +225,7 @@ from pathlib import Path
 import re
 
 from cardiff.contract.models import RenderRequest
-from cardiff.contract.sanitization import UnsafeContentError
+from cardiff.contract.sanitization import LATEX_ESCAPE_MAP, UnsafeContentError
 from cardiff.contract.validation import sanitize_render_fields
 
 from .directives import (
@@ -241,7 +241,11 @@ from .models import (
     RenderStatus,
     RenderingError,
 )
-from .templates import resolve_asset_paths, resolve_template
+from .templates import (
+    resolve_asset_paths,
+    resolve_template,
+    validate_required_identity_fields,
+)
 from .tex import BaseTeXAdapter, get_default_tex_adapter
 
 PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([a-z0-9_]+)\s*\}\}")
@@ -265,6 +269,7 @@ def render_request_to_pdf(
             render_request.template,
             template_root=template_root,
         )
+        validate_required_identity_fields(render_request, resolved_template)
         resolved_assets = resolve_asset_paths(
             render_request,
             resolved_template,
@@ -399,10 +404,18 @@ def _build_placeholder_values(
         "website": identity.website or "",
         "pronouns": identity.pronouns or "",
         "address_block": r" \\ ".join(address_lines),
-        "variant": str(options.get("variant", "default")),
-        "accent_hex": str(options.get("accent_hex", "#000000")),
+        "variant": _escape_tex_option(str(options.get("variant", "default"))),
+        "accent_hex": _escape_tex_option(str(options.get("accent_hex", "#000000"))),
         "logo_path": logo_path.as_posix() if logo_path is not None else "",
     }
+
+
+def _escape_tex_option(value: str) -> str:
+    # Option values are validated but, unlike identity text, not escaped through sanitize_render_fields.
+    escaped = value
+    for character, replacement in LATEX_ESCAPE_MAP.items():
+        escaped = escaped.replace(character, replacement)
+    return escaped
 
 
 def _render_template_source(template_source: str, values: dict[str, str]) -> str:

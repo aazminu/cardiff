@@ -65,8 +65,10 @@ Each issue includes:
 ## Behavior Notes
 
 - JSON and YAML are both accepted, but both normalize into the same canonical request structure.
+- Request files are read as strict UTF-8; an optional UTF-8 byte-order mark is stripped for both formats. Undecodable files (including UTF-16 and UTF-32) are rejected with `contract_error` on field `$` instead of being decoded lossily.
 - Validation errors are returned before any render pipeline exists.
 - Unknown fields are rejected instead of ignored so downstream CLI, batch, and API consumers cannot drift silently.
+- Field names must be strings. YAML 1.1 keys such as `1`, `on`, `yes`, or `null` load as non-string values; they are rejected as `unknown_field` with a string `field` label (for example `"1"`, `"identity.True"`, or `"assets.None"`), even when that label matches a supported name.
 - Canonical requests preserve the original business text, so non-TeX consumers such as the QR vCard payload receive it unchanged. `sanitize_render_fields()` returns a TeX-ready copy with LaTeX-significant characters escaped exactly once; the render pipeline applies it when filling template placeholders.
 
 ## Approved Template Notes

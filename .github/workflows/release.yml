@@ -109,6 +109,48 @@ jobs:
         working-directory: cardiff
         run: python -m build
 
+      - name: Verify wheel contents and metadata
+        working-directory: cardiff
+        run: |
+          python - <<'PY'
+          import email
+          import glob
+          import sys
+          import zipfile
+
+          wheels = glob.glob("dist/*.whl")
+          if len(wheels) != 1:
+              sys.exit(f"expected exactly one wheel in dist/, found {wheels}")
+
+          required = {
+              "cardiff/templates/business-card/card.tex",
+              "cardiff/templates/business-card/manifest.json",
+          }
+          with zipfile.ZipFile(wheels[0]) as wheel:
+              names = set(wheel.namelist())
+              missing = sorted(required - names)
+              if missing:
+                  sys.exit(f"{wheels[0]} is missing bundled template files: {missing}")
+              metadata_path = next(name for name in names if name.endswith(".dist-info/METADATA"))
+              metadata = email.message_from_bytes(wheel.read(metadata_path))
+
+          if not (metadata.get_payload() or "").strip():
+              sys.exit(f"{wheels[0]} has no long description in METADATA")
+
+          print(f"{wheels[0]} includes the bundled templates and a long description")
+          PY
+
+      - name: Smoke-test a standard wheel install
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-venv"
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip install cardiff/dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-venv/bin/cardiff" render \
+            "$GITHUB_WORKSPACE/cardiff/tests/fixtures/requests/valid-request.yaml" \
+            --approved-asset-root "$GITHUB_WORKSPACE/cardiff/tests/fixtures/approved-assets" \
+            --output "$RUNNER_TEMP/wheel-smoke.pdf" \
+            --deterministic
+
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@v4
         with:
