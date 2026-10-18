@@ -382,8 +382,10 @@ def validate_asset_reference(
             ]
         )
 
+    asset_path = Path(candidate)
+    # urlparse reads a Windows drive letter as a scheme; only exempt platform-absolute paths.
     parsed = urlparse(candidate)
-    if parsed.scheme and not re.match(r"^[a-zA-Z]:$", parsed.scheme):
+    if parsed.scheme and not asset_path.is_absolute():
         return _finalize_issues(
             [
                 ValidationIssue(
@@ -394,7 +396,6 @@ def validate_asset_reference(
             ]
         )
 
-    asset_path = Path(candidate)
     if asset_path.is_absolute():
         normalized = asset_path.resolve()
         if not any(normalized.is_relative_to(root) for root in resolved_roots):
