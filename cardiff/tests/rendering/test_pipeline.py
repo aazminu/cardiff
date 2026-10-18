@@ -236,6 +236,7 @@ from cardiff.rendering import (
     render_request_to_pdf,
     resolve_template,
 )
+from cardiff.rendering.models import RenderingError
 from cardiff.rendering.tex import BaseTeXAdapter, TeXCompileArtifact
 
 FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
@@ -388,7 +389,8 @@ def test_non_deterministic_qr_renders_keep_normalized_evidence_stable():
     assert first.evidence is not None
     assert second.evidence is not None
     assert first.rendered_tex is not None
-    assert ".cardiff-qr/qr-evidence-stability-cardiff-qr.png" in first.rendered_tex
+    assert "qr-evidence-stability-cardiff-qr.png" in first.rendered_tex
+    assert ".cardiff-qr" not in first.rendered_tex
     assert first.evidence.to_dict() == second.evidence.to_dict()
 
 
@@ -719,3 +721,105 @@ def test_unsafe_text_on_a_constructed_request_fails_before_compilation(tmp_path)
     assert any("identity.full_name" in message for message in result.diagnostics)
     assert adapter.compile_calls == 0
     assert not (tmp_path / "card.pdf").exists()
+
+
+QR_INCLUDEGRAPHICS_PATTERN = re.compile(
+    r"\\includegraphics\[[^\]]*\]\{([^}]*cardiff-qr\.png)\}"
+)
+
+
+class QrInspectingNonDeterministicAdapter(BaseTeXAdapter):
+    runtime_name = "qr-inspecting-adapter"
+    runtime_version = "1"
+    deterministic = False
+
+    def __init__(self, *, fail_compile: bool = False) -> None:
+        self.fail_compile = fail_compile
+        self.observed_qr_paths: list[Path] = []
+        self.qr_existed_during_compile: list[bool] = []
+        self.qr_magic_headers: list[bytes] = []
+
+    def compile(
+        self,
+        tex_source: str,
+        output_path: str | Path,
+        *,
+        page_size_pt: tuple[float, float],
+        preview_lines: tuple[str, ...],
+        title: str,
+    ) -> TeXCompileArtifact:
+        match = QR_INCLUDEGRAPHICS_PATTERN.search(tex_source)
+        assert match is not None, "expected QR \\includegraphics in tex_source"
+        qr_path = Path(match.group(1))
+        self.observed_qr_paths.append(qr_path)
+        exists = qr_path.is_file()
+        self.qr_existed_during_compile.append(exists)
+        if exists:
+            self.qr_magic_headers.append(qr_path.read_bytes()[:4])
+
+        if self.fail_compile:
+            raise RenderingError(
+                RenderFailureClass.TEX_COMPILE_FAILED,
+                "simulated compile failure",
+            )
+
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"%PDF-1.4\n%%EOF\n")
+        return TeXCompileArtifact(
+            output_path=output,
+            runtime_name=self.runtime_name,
+            runtime_version=self.runtime_version,
+        )
+
+
+def test_non_deterministic_qr_render_cleans_up_qr_image_after_success(tmp_path):
+    request = _load_request()
+    output_path = tmp_path / "card.pdf"
+    adapter = QrInspectingNonDeterministicAdapter()
+
+    result = render_request_to_pdf(
+        request,
+        output_path,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.SUCCEEDED
+    assert len(adapter.observed_qr_paths) == 1
+    assert adapter.qr_existed_during_compile == [True]
+    assert adapter.qr_magic_headers == [b"\x89PNG"]
+
+    qr_path = adapter.observed_qr_paths[0]
+    assert not qr_path.exists()
+    assert not qr_path.parent.exists()
+    assert not (tmp_path / ".cardiff-qr").exists()
+    assert list(tmp_path.rglob("*-cardiff-qr.png")) == []
+    assert list(tmp_path.iterdir()) == [output_path]
+
+
+def test_non_deterministic_qr_render_cleans_up_qr_image_after_compile_failure(tmp_path):
+    request = _load_request()
+    output_path = tmp_path / "card.pdf"
+    adapter = QrInspectingNonDeterministicAdapter(fail_compile=True)
+
+    result = render_request_to_pdf(
+        request,
+        output_path,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEX_COMPILE_FAILED
+    assert len(adapter.observed_qr_paths) == 1
+    assert adapter.qr_existed_during_compile == [True]
+    assert adapter.qr_magic_headers == [b"\x89PNG"]
+
+    qr_path = adapter.observed_qr_paths[0]
+    assert not qr_path.exists()
+    assert not qr_path.parent.exists()
+    assert not (tmp_path / ".cardiff-qr").exists()
+    assert list(tmp_path.rglob("*-cardiff-qr.png")) == []
+    assert list(tmp_path.iterdir()) == []
+
