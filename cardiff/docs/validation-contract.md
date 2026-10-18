@@ -65,6 +65,7 @@ Each issue includes:
 ## Behavior Notes
 
 - JSON and YAML are both accepted, but both normalize into the same canonical request structure.
+- Request files are read as strict UTF-8; an optional UTF-8 byte-order mark is stripped for both formats. Undecodable files (including UTF-16 and UTF-32) are rejected with `contract_error` on field `$` instead of being decoded lossily.
 - Validation errors are returned before any render pipeline exists.
 - Unknown fields are rejected instead of ignored so downstream CLI, batch, and API consumers cannot drift silently.
 - Sanitized requests preserve the original business meaning while escaping LaTeX-significant characters for later rendering stages.

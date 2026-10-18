@@ -14,6 +14,8 @@ python -m cardiff validate tests/fixtures/requests/valid-request.yaml --approved
 
 The command prints one JSON status object to standard output and returns exit code `0` when the request is accepted.
 
+Request files must be UTF-8 encoded. A leading UTF-8 byte-order mark is accepted for both JSON and YAML. Files that are not valid UTF-8 (for example UTF-16 files saved by some Windows editors or shells) are rejected with a `contract_error` issue on field `$` and exit code `1`, for both `validate` and `render`. Re-save such files as UTF-8.
+
 ## Render One PDF
 
 ```bash
@@ -41,7 +43,7 @@ The reference-evidence comparison normalizes the template manifest and the canon
 ## Exit Codes
 
 - `0`: command succeeded
-- `1`: canonical validation rejected the request
+- `1`: canonical validation rejected the request, including request files that cannot be decoded as UTF-8 (`contract_error`)
 - `2`: CLI usage or required file/path error
 - `3`: render pipeline failure after validation succeeded
 - `4`: render succeeded but reference-evidence comparison failed

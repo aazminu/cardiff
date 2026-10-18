@@ -217,12 +217,16 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
-from cardiff.contract import load_and_validate_request
+import pytest
+
+from cardiff.contract import load_and_validate_request, load_request_document
 from cardiff.contract.errors import ValidationCode, ValidationOutcome
 
 APPROVED_ASSETS = Path(__file__).resolve().parents[1] / "fixtures" / "approved-assets"
+REQUESTS_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "requests"
 
 
 def test_missing_required_fields_fail_before_rendering():
@@ -334,3 +338,73 @@ assets:
     assert len(result.issues) == 1
     assert result.issues[0].code == ValidationCode.INVALID_ASSET_PATH
     assert result.issues[0].field == "assets.logo"
+
+
+@pytest.mark.parametrize("fixture_name", ["valid-request.json", "valid-request.yaml"])
+@pytest.mark.parametrize("as_string_path", [False, True])
+def test_utf8_bom_request_files_validate_like_plain_utf8(tmp_path, fixture_name, as_string_path):
+    source = REQUESTS_ROOT / fixture_name
+    bom_copy = tmp_path / fixture_name
+    bom_copy.write_text(source.read_text(encoding="utf-8"), encoding="utf-8-sig")
+    assert bom_copy.read_bytes().startswith(b"\xef\xbb\xbf")
+
+    result = load_and_validate_request(
+        str(bom_copy) if as_string_path else bom_copy,
+        approved_asset_roots=(APPROVED_ASSETS,),
+    )
+    plain_result = load_and_validate_request(source, approved_asset_roots=(APPROVED_ASSETS,))
+
+    assert result.outcome == ValidationOutcome.ACCEPTED
+    assert result.issues == ()
+    assert result.request.identity == plain_result.request.identity
+    assert result.request.template == plain_result.request.template
+    assert result.request.source_format == plain_result.request.source_format
+
+
+@pytest.mark.parametrize(
+    ("encoding", "expected_message"),
+    [
+        ("utf-16", "request files must be UTF-8 encoded; detected a UTF-16 byte-order mark"),
+        ("utf-32", "request files must be UTF-8 encoded; detected a UTF-32 byte-order mark"),
+    ],
+)
+def test_request_files_with_non_utf8_bom_are_rejected_as_contract_errors(tmp_path, encoding, expected_message):
+    request_path = tmp_path / "request.yaml"
+    request_path.write_text((REQUESTS_ROOT / "valid-request.yaml").read_text(encoding="utf-8"), encoding=encoding)
+
+    result = load_and_validate_request(request_path, approved_asset_roots=(APPROVED_ASSETS,))
+
+    assert result.outcome == ValidationOutcome.REJECTED
+    assert result.request is None
+    assert [(issue.code, issue.field, issue.message) for issue in result.issues] == [
+        (ValidationCode.CONTRACT_ERROR, "$", expected_message),
+    ]
+
+
+def test_undecodable_request_bytes_are_rejected_without_lossy_decoding(tmp_path):
+    request_path = tmp_path / "request.json"
+    request_path.write_bytes(b'{"identity": {"full_name": "Jos\xe9"}}')
+
+    raw_document = load_request_document(request_path)
+    result = load_and_validate_request(request_path)
+
+    assert raw_document.content == ""
+    assert raw_document.source_format == "json"
+    assert raw_document.decode_error is not None
+    assert result.outcome == ValidationOutcome.REJECTED
+    assert len(result.issues) == 1
+    assert result.issues[0].code == ValidationCode.CONTRACT_ERROR
+    assert result.issues[0].field == "$"
+    assert result.issues[0].message.startswith("request files must be UTF-8 encoded: 'utf-8' codec can't decode byte 0xe9")
+
+
+def test_stream_and_raw_string_inputs_are_unchanged():
+    text = (REQUESTS_ROOT / "valid-request.yaml").read_text(encoding="utf-8")
+
+    from_stream = load_request_document(io.StringIO(text), source_name="stream.yaml")
+    from_string = load_request_document(text, source_name="inline.yaml")
+
+    assert from_stream.content == text
+    assert from_string.content == text
+    assert from_stream.decode_error is None
+    assert from_string.decode_error is None
