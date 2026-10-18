@@ -319,14 +319,17 @@ class XeLaTeXAdapter(BaseTeXAdapter):
             tex_path = temp_root / "cardiff-render.tex"
             tex_path.write_text(tex_source, encoding="utf-8")
 
+            # Run inside temp_root and pass a bare file name: TeX parses the
+            # main-file argument as TeX input, so a "~" in the temp path (as in
+            # Windows 8.3 names such as C:\Users\RUNNER~1\...) breaks it.
             completed = subprocess.run(
                 [
                     compiler_path,
                     "-interaction=nonstopmode",
                     "-halt-on-error",
-                    f"-output-directory={temp_root.as_posix()}",
-                    tex_path.as_posix(),
+                    tex_path.name,
                 ],
+                cwd=temp_root,
                 capture_output=True,
                 text=True,
                 check=False,

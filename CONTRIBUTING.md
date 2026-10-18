@@ -116,7 +116,7 @@ Clean those directories before relying on broad test collection.
 Expected current result with `xelatex` on `PATH`:
 
 - `tests/contract`: `50 passed, 1 skipped` (`51 passed` on Windows, where the drive-relative path test also runs)
-- `tests/rendering`: `45 passed` (`42 passed, 3 skipped` without `xelatex` on `PATH`)
+- `tests/rendering`: `46 passed` (`42 passed, 4 skipped` without `xelatex` on `PATH`)
 - `tests/cli`: `19 passed`
 
 Release automation note:

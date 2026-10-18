@@ -633,6 +633,25 @@ def test_bundled_template_compiles_with_xelatex(variant, tmp_path):
     assert (tmp_path / "card.pdf").stat().st_size > 0
 
 
+@pytest.mark.skipif(shutil.which("xelatex") is None, reason="xelatex is not installed")
+def test_xelatex_compiles_when_the_temp_directory_contains_a_tilde(tmp_path, monkeypatch):
+    # Windows 8.3 short temp paths such as C:\Users\RUNNER~1\... contain "~",
+    # which TeX reads as an active character in a main-file path.
+    temp_root = tmp_path / "RUNNER~1"
+    temp_root.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp_root))
+
+    result = render_request_to_pdf(
+        _load_request(),
+        tmp_path / "card.pdf",
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=XeLaTeXAdapter(),
+    )
+
+    assert result.status == RenderStatus.SUCCEEDED, result.diagnostics
+    assert (tmp_path / "card.pdf").stat().st_size > 0
+
+
 def _special_character_request():
     result = validate_render_request(
         {
