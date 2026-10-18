@@ -2,6 +2,17 @@
 
 Status: pre-alpha; `UNIT-001` is complete and the repository currently contains QR-directive rendering, deterministic/Unicode rendering clarification work, normalized reference-evidence comparison, fail-fast unknown-template-placeholder rejection, initial GitHub Actions validation/release automation, and normalized tracked-source attribution headers.
 
+## Unreleased
+
+### Added or Changed
+- Updated `.github/workflows/ci.yml` so the test job runs on `windows-latest` as well as `ubuntu-latest`, for Python `3.12` and `3.13`, with bash as the job's default shell. The Windows-only `test_windows_drive_relative_paths_are_rejected` contract test now runs in CI instead of being skipped (#46).
+- Updated `.github/workflows/ci.yml` so the test job installs XeLaTeX (TeX Live `texlive-xetex` on Ubuntu, MiKTeX on Windows) and fails if `xelatex` is missing. The three `test_bundled_template_compiles_with_xelatex` cases now run in CI instead of being skipped.
+- Updated the rendering and CLI tests that render successful PDFs so they write to pytest's `tmp_path` instead of overwriting the tracked samples in `cardiff/tests/fixtures/approved-samples/business-card/`. A sample left open in a PDF viewer, which locks the file on Windows, no longer breaks a local test run.
+- Updated `CONTRIBUTING.md` Verification Notes with the CI OS matrix, the XeLaTeX install, and the current suite baseline: `tests/contract` `50 passed, 1 skipped` (`51 passed` on Windows), `tests/rendering` `45 passed` (`42 passed, 3 skipped` without `xelatex`), and `tests/cli` `19 passed`.
+
+### For Deletion
+- None from this change.
+
 ## v0.1.7
 
 ### Added or Changed

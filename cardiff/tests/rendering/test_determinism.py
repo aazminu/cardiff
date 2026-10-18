@@ -232,7 +232,6 @@ from cardiff.rendering import (
 
 FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 APPROVED_ASSETS = FIXTURES_ROOT / "approved-assets"
-APPROVED_SAMPLES = FIXTURES_ROOT / "approved-samples" / "business-card"
 REQUEST_PATH = FIXTURES_ROOT / "requests" / "valid-request.yaml"
 
 
@@ -246,9 +245,9 @@ def _load_request():
     return result.request
 
 
-def test_repeated_runs_produce_matching_normalized_evidence():
+def test_repeated_runs_produce_matching_normalized_evidence(tmp_path):
     request = _load_request()
-    output_path = APPROVED_SAMPLES / "determinism-output.pdf"
+    output_path = tmp_path / "determinism-output.pdf"
     adapter = DeterministicTeXAdapter()
     evidence_payloads = []
 
@@ -266,9 +265,9 @@ def test_repeated_runs_produce_matching_normalized_evidence():
     assert evidence_payloads[0] == evidence_payloads[1] == evidence_payloads[2]
 
 
-def test_request_fingerprint_ignores_source_metadata():
+def test_request_fingerprint_ignores_source_metadata(tmp_path):
     request = _load_request()
-    output_path = APPROVED_SAMPLES / "determinism-output.pdf"
+    output_path = tmp_path / "determinism-output.pdf"
     adapter = DeterministicTeXAdapter()
     alternate_source_request = replace(
         request,
@@ -296,9 +295,9 @@ def test_request_fingerprint_ignores_source_metadata():
     assert baseline.evidence.to_dict() == variant.evidence.to_dict()
 
 
-def test_manifest_fingerprint_ignores_line_ending_differences():
+def test_manifest_fingerprint_ignores_line_ending_differences(tmp_path):
     request = _load_request()
-    output_path = APPROVED_SAMPLES / "determinism-output.pdf"
+    output_path = tmp_path / "determinism-output.pdf"
     adapter = DeterministicTeXAdapter()
     resolved_template = resolve_template(request.template)
     original_bytes = resolved_template.manifest_path.read_bytes()

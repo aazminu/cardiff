@@ -306,9 +306,9 @@ class CompileTrackingAdapter(BaseTeXAdapter):
         raise AssertionError("compile() should not be called for unknown placeholders")
 
 
-def test_pipeline_writes_pdf_to_the_requested_output_path():
+def test_pipeline_writes_pdf_to_the_requested_output_path(tmp_path):
     request = _load_request()
-    output_path = APPROVED_SAMPLES / "reference-output.pdf"
+    output_path = tmp_path / "reference-output.pdf"
 
     result = render_request_to_pdf(
         request,
@@ -362,9 +362,9 @@ def test_qr_preprocessing_failure_is_classified_before_compilation():
     )
 
 
-def test_non_deterministic_qr_renders_keep_normalized_evidence_stable():
+def test_non_deterministic_qr_renders_keep_normalized_evidence_stable(tmp_path):
     request = _load_request()
-    output_path = APPROVED_SAMPLES / "qr-evidence-stability.pdf"
+    output_path = tmp_path / "qr-evidence-stability.pdf"
     adapter = FakeNonDeterministicAdapter()
 
     with patch(

@@ -35,6 +35,26 @@ jobs:
         working-directory: cardiff
         run: pip install -e ".[dev]"
 
+      # Install the TeX distribution README.md recommends for each OS so the
+      # XeLaTeX compile tests run instead of being skipped.
+      - name: Install XeLaTeX (TeX Live)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y texlive-xetex
+
+      - name: Install XeLaTeX (MiKTeX)
+        if: runner.os == 'Windows'
+        run: |
+          choco install miktex --no-progress -y
+          miktex_bin='/c/Program Files/MiKTeX/miktex/bin/x64'
+          # Install missing LaTeX packages on demand instead of prompting.
+          "$miktex_bin/initexmf.exe" --admin --set-config-value='[MPM]AutoInstall=1'
+          cygpath -w "$miktex_bin" >> "$GITHUB_PATH"
+
+      - name: Check XeLaTeX is on PATH
+        run: xelatex --version
+
       - name: Clean transient test work directories
         working-directory: cardiff
         run: |
