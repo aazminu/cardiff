@@ -217,12 +217,18 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from cardiff.contract import load_and_validate_request
+import pytest
+
+from cardiff.contract import AssetReference, load_and_validate_request, validate_asset_reference
 from cardiff.contract.errors import ValidationCode, ValidationOutcome
 
 APPROVED_ASSETS = Path(__file__).resolve().parents[1] / "fixtures" / "approved-assets"
+APPROVED_LOGO = APPROVED_ASSETS / "brand" / "logo.png"
+OUTSIDE_ROOT_MESSAGE = "absolute asset paths must stay inside an approved root"
+REMOTE_MESSAGE = "asset paths must be local files inside approved roots"
 
 
 def test_parent_traversal_asset_paths_are_rejected():
@@ -269,6 +275,49 @@ assets:
     assert result.outcome == ValidationOutcome.REJECTED
     assert result.issues[0].code == ValidationCode.INVALID_ASSET_PATH
     assert result.issues[0].field == "assets.logo"
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    ["http://example.com/logo.png", "file:///tmp/logo.png"],
+)
+def test_url_scheme_asset_paths_are_rejected(candidate):
+    issues = validate_asset_reference(AssetReference("logo", candidate), [APPROVED_ASSETS])
+
+    assert len(issues) == 1
+    assert issues[0].code == ValidationCode.INVALID_ASSET_PATH
+    assert issues[0].field == "assets.logo"
+    assert issues[0].message == REMOTE_MESSAGE
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [str(APPROVED_LOGO), APPROVED_LOGO.as_posix()],
+    ids=["native", "posix"],
+)
+def test_absolute_asset_path_inside_approved_root_is_accepted(candidate):
+    issues = validate_asset_reference(AssetReference("logo", candidate), [APPROVED_ASSETS])
+
+    assert issues == ()
+
+
+def test_absolute_asset_path_outside_approved_roots_is_rejected(tmp_path):
+    outside_logo = (tmp_path / "logo.png").resolve()
+
+    issues = validate_asset_reference(AssetReference("logo", str(outside_logo)), [APPROVED_ASSETS])
+
+    assert len(issues) == 1
+    assert issues[0].code == ValidationCode.INVALID_ASSET_PATH
+    assert issues[0].message == OUTSIDE_ROOT_MESSAGE
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows drive-relative paths")
+def test_windows_drive_relative_paths_are_rejected():
+    issues = validate_asset_reference(AssetReference("logo", "C:logo.png"), [APPROVED_ASSETS])
+
+    assert len(issues) == 1
+    assert issues[0].code == ValidationCode.INVALID_ASSET_PATH
+    assert issues[0].message == REMOTE_MESSAGE
 
 
 def test_seeded_latex_commands_are_rejected():

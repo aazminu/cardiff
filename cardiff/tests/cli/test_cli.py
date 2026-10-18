@@ -421,6 +421,60 @@ def test_python_dash_m_entrypoint_supports_validate_command():
     assert payload['template_id'] == 'business-card'
 
 
+def test_validate_command_rejects_non_string_top_level_key_without_traceback(tmp_path):
+    request_path = tmp_path / 'case-a.yaml'
+    request_path.write_text('1: stray\ntemplate:\n  id: business-card\n', encoding='utf-8')
+
+    completed = subprocess.run(
+        [sys.executable, '-m', 'cardiff', 'validate', request_path.as_posix()],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert 'Traceback' not in completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload['status'] == 'rejected'
+    assert payload['exit_code'] == 1
+    assert {'code': 'unknown_field', 'field': '1'} in [
+        {'code': issue['code'], 'field': issue['field']} for issue in payload['issues']
+    ]
+
+
+def test_validate_command_rejects_non_string_asset_key_without_traceback(tmp_path):
+    request_path = tmp_path / 'case-b.yaml'
+    request_path.write_text(
+        'identity:\n'
+        '  full_name: A\n'
+        '  role: B\n'
+        '  email: a@b.c\n'
+        'template:\n'
+        '  id: business-card\n'
+        'assets:\n'
+        '  1: x.png\n'
+        '  logo: brand/logo.png\n',
+        encoding='utf-8',
+    )
+
+    exit_code, payload, stderr = _run_cli(
+        [
+            'validate',
+            request_path.as_posix(),
+            '--approved-asset-root',
+            APPROVED_ASSETS.as_posix(),
+        ]
+    )
+
+    assert exit_code == 1
+    assert 'Traceback' not in stderr
+    assert payload['status'] == 'rejected'
+    assert [(issue['code'], issue['field']) for issue in payload['issues']] == [
+        ('unknown_field', 'assets.1'),
+    ]
+
+
 def _write_reencoded_request(tmp_path: Path, fixture_name: str, encoding: str) -> Path:
     source = FIXTURES_ROOT / 'requests' / fixture_name
     target = tmp_path / fixture_name
