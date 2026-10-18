@@ -219,6 +219,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+import re
+import shutil
 import tempfile
 from unittest.mock import patch
 
@@ -230,6 +232,7 @@ from cardiff.rendering import (
     DeterministicTeXAdapter,
     RenderFailureClass,
     RenderStatus,
+    XeLaTeXAdapter,
     render_request_to_pdf,
     resolve_template,
 )
@@ -518,3 +521,111 @@ def test_multiple_unknown_placeholders_are_all_reported():
         assert any("unknown_b" in msg for msg in result.diagnostics)
     finally:
         bad_tex.unlink(missing_ok=True)
+
+
+UNESCAPED_HASH = re.compile(r"(?<!\\)#")
+
+
+def _without_optional_fields(request, *, keep_organization=False):
+    identity = replace(
+        request.identity,
+        organization=request.identity.organization if keep_organization else None,
+        department=None,
+        phone=None,
+        website=None,
+        pronouns=None,
+        address_lines=(),
+    )
+    options = {
+        name: value
+        for name, value in request.template.options.items()
+        if name != "accent_hex"
+    }
+    return replace(
+        request,
+        identity=identity,
+        template=replace(request.template, options=options),
+    )
+
+
+def _assert_no_empty_line_breaks(tex: str) -> None:
+    body = tex.split(r"\begin{document}", 1)[1]
+    for line in body.splitlines():
+        stripped = line.strip()
+        assert not stripped.startswith(r"\\"), f"line starts with a bare line break: {line!r}"
+
+
+def test_accent_hex_is_escaped_in_rendered_tex(tmp_path):
+    request = _load_request()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=DeterministicTeXAdapter(),
+    )
+
+    assert result.status == RenderStatus.SUCCEEDED
+    assert result.rendered_tex is not None
+    assert r"Accent: \#0055AA" in result.rendered_tex
+    assert UNESCAPED_HASH.search(result.rendered_tex) is None
+
+
+def test_default_accent_hex_is_escaped_in_rendered_tex(tmp_path):
+    request = _without_optional_fields(_load_request(), keep_organization=True)
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=DeterministicTeXAdapter(),
+    )
+
+    assert result.status == RenderStatus.SUCCEEDED
+    assert result.rendered_tex is not None
+    assert r"Accent: \#000000" in result.rendered_tex
+    assert UNESCAPED_HASH.search(result.rendered_tex) is None
+
+
+@pytest.mark.parametrize("keep_organization", [False, True])
+def test_empty_optional_fields_do_not_leave_bare_line_breaks(keep_organization, tmp_path):
+    request = _without_optional_fields(
+        _load_request(),
+        keep_organization=keep_organization,
+    )
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=DeterministicTeXAdapter(),
+    )
+
+    assert result.status == RenderStatus.SUCCEEDED
+    assert result.rendered_tex is not None
+    _assert_no_empty_line_breaks(result.rendered_tex)
+
+
+@pytest.mark.skipif(shutil.which("xelatex") is None, reason="xelatex is not installed")
+@pytest.mark.parametrize(
+    "variant",
+    ["sample", "without-organization-and-address", "without-address"],
+)
+def test_bundled_template_compiles_with_xelatex(variant, tmp_path):
+    request = _load_request()
+    if variant == "without-organization-and-address":
+        request = _without_optional_fields(request)
+    elif variant == "without-address":
+        request = _without_optional_fields(request, keep_organization=True)
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=XeLaTeXAdapter(),
+    )
+
+    assert result.status == RenderStatus.SUCCEEDED, result.diagnostics
+    assert result.evidence is not None
+    assert result.evidence.runtime_name == "xelatex"
+    assert (tmp_path / "card.pdf").stat().st_size > 0
