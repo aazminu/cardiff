@@ -26,6 +26,7 @@ Behavior:
 
 - The request is validated before any render work starts.
 - Unknown template placeholders fail before PDF generation starts and surface a render failure class in the JSON payload.
+- Requests missing an identity field listed in the template manifest's `required_identity_fields` fail before PDF generation with exit code `3` and `failure_class` `template_field_missing`.
 - Parent directories for the output PDF are created automatically when needed.
 - The CLI reports the resolved source path, template ID, output path, and runtime metadata in its JSON status payload.
 - `--deterministic` forces the deterministic adapter even if `xelatex` is installed locally.

@@ -12,18 +12,23 @@ Approved templates live under `cardiff/src/cardiff/templates/<template-id>/`.
 
 Each template package must currently provide:
 
-- `manifest.json`: template metadata, page geometry, supported variants, and required asset slots
+- `manifest.json`: template metadata, page geometry, supported variants, required asset slots, and required identity fields
 - `card.tex`: the entry TeX template consumed by the pipeline
+
+`required_identity_fields` lists the identity attributes the template needs, such as `phone` or `address_lines`. It defaults to `["full_name", "role", "email"]` when omitted. Every entry must name a canonical identity field; a manifest that lists an unknown name fails with `RenderFailureClass.TEMPLATE_MANIFEST_INVALID`.
 
 ## Render Lifecycle
 
 1. Load and validate a JSON or YAML request through `cardiff.contract`.
 2. Resolve `template.id` through the manifest-driven template registry.
-3. Resolve required asset paths against the caller-provided approved asset roots.
-4. Validate that every template placeholder maps to a supported render field.
-5. Materialize TeX by applying the canonical request data to the approved template.
-6. Compile through a TeX adapter.
-7. Return `RenderResult` plus normalized evidence fingerprints.
+3. Check that the request provides every identity field listed in the manifest's `required_identity_fields`.
+4. Resolve required asset paths against the caller-provided approved asset roots.
+5. Validate that every template placeholder maps to a supported render field.
+6. Materialize TeX by applying the canonical request data to the approved template.
+7. Compile through a TeX adapter.
+8. Return `RenderResult` plus normalized evidence fingerprints.
+
+If the request lacks a manifest-required identity field (absent, blank, or an empty `address_lines` list), rendering stops before compile with `RenderFailureClass.TEMPLATE_FIELD_MISSING` (`template_field_missing`). The diagnostics name every missing field, for example `identity.phone`, and no PDF is written. This check runs during rendering rather than contract validation, so the canonical request contract stays template-agnostic.
 
 If the template source references an unknown placeholder, rendering stops before compile with `RenderFailureClass.TEMPLATE_PLACEHOLDER_UNKNOWN`.
 
