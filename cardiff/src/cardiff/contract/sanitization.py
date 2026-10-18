@@ -254,20 +254,28 @@ def normalize_text(value: str, *, multiline: bool = False) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def sanitize_text(value: str, *, field_name: str) -> str:
-    """Reject unsafe content, then escape LaTeX-significant characters."""
+def reject_unsafe_text(value: str, *, field_name: str) -> str:
+    """Normalize business text and reject unsafe render fragments without escaping it."""
 
     normalized = normalize_text(value)
-    if not normalized:
-        return normalized
-
     for pattern in UNSAFE_TEXT_PATTERNS:
         if pattern.search(normalized):
             raise UnsafeContentError(
                 f"{field_name} contains unsafe template or LaTeX control content"
             )
+    return normalized
 
-    escaped = normalized
+
+def escape_latex(value: str) -> str:
+    """Escape LaTeX-significant characters in text that already passed unsafe-content checks."""
+
+    escaped = value
     for character, replacement in LATEX_ESCAPE_MAP.items():
         escaped = escaped.replace(character, replacement)
     return escaped
+
+
+def sanitize_text(value: str, *, field_name: str) -> str:
+    """Reject unsafe content, then escape LaTeX-significant characters."""
+
+    return escape_latex(reject_unsafe_text(value, field_name=field_name))

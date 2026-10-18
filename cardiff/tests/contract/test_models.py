@@ -219,7 +219,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cardiff.contract import load_and_validate_request
+from cardiff.contract import load_and_validate_request, sanitize_render_fields
 from cardiff.contract.errors import ValidationOutcome
 
 FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
@@ -243,12 +243,16 @@ def test_json_and_yaml_sources_normalize_to_the_same_contract():
     assert json_result.request.to_dict() == yaml_result.request.to_dict()
 
 
-def test_valid_inputs_are_sanitized_for_latex_sensitive_characters():
+def test_valid_inputs_keep_original_text_and_escape_only_for_tex():
     payload = """
 identity:
   full_name: "Grace Hopper"
   role: "R&D Lead"
-  email: "grace@example.com"
+  email: "grace_hopper@example.com"
+  website: "https://example.com/~grace"
+  address_lines:
+    - "#12 Logic St."
+    - "London"
 template:
   id: business-card
 """
@@ -261,4 +265,14 @@ template:
 
     assert result.outcome == ValidationOutcome.ACCEPTED
     assert result.request is not None
-    assert result.request.identity.role == r"R\&D Lead"
+    identity = result.request.identity
+    assert identity.role == "R&D Lead"
+    assert identity.email == "grace_hopper@example.com"
+    assert identity.website == "https://example.com/~grace"
+    assert identity.address_lines == ("#12 Logic St.", "London")
+
+    tex_identity = sanitize_render_fields(result.request).identity
+    assert tex_identity.role == r"R\&D Lead"
+    assert tex_identity.email == r"grace\_hopper@example.com"
+    assert tex_identity.website == r"https://example.com/\textasciitilde{}grace"
+    assert tex_identity.address_lines == (r"\#12 Logic St.", "London")

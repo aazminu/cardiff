@@ -41,7 +41,7 @@ assets:
 - Supported template options are `variant`, `include_qr`, and `accent_hex`.
 - Asset slots are currently limited to `logo` and `avatar`.
 - Asset paths must stay inside approved asset roots supplied by the caller and must use an approved file extension.
-- Business-text fields are sanitized for LaTeX-sensitive characters and unsafe control fragments are rejected.
+- Business-text fields are normalized and unsafe control fragments (backslashes, `{{`, `{%`, `%}`) are rejected. Accepted text is stored as written; it is not LaTeX-escaped in the canonical request.
 
 ## Failure Taxonomy
 
@@ -67,7 +67,7 @@ Each issue includes:
 - JSON and YAML are both accepted, but both normalize into the same canonical request structure.
 - Validation errors are returned before any render pipeline exists.
 - Unknown fields are rejected instead of ignored so downstream CLI, batch, and API consumers cannot drift silently.
-- Sanitized requests preserve the original business meaning while escaping LaTeX-significant characters for later rendering stages.
+- Canonical requests preserve the original business text, so non-TeX consumers such as the QR vCard payload receive it unchanged. `sanitize_render_fields()` returns a TeX-ready copy with LaTeX-significant characters escaped exactly once; the render pipeline applies it when filling template placeholders.
 
 ## Approved Template Notes
 

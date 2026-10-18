@@ -219,6 +219,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from cardiff.contract import validate_render_request
+from cardiff.contract.errors import ValidationOutcome
 from cardiff.contract.models import IdentityProfile
 from cardiff.rendering.directives import (
     build_vcard,
@@ -279,6 +281,32 @@ class TestBuildVcard:
         assert "TEL:" not in vcard
         assert "URL:" not in vcard
         assert "ADR:" not in vcard
+
+    def test_uses_original_text_from_a_validated_request(self):
+        result = validate_render_request(
+            {
+                "identity": {
+                    "full_name": "Ada Lovelace",
+                    "role": "R&D Lead",
+                    "email": "ada_lovelace@example.com",
+                    "organization": "Analytical Engine Lab, Inc.",
+                    "website": "https://example.com/~ada",
+                    "address_lines": ["#12 Logic St.", "London"],
+                },
+                "template": {"id": "business-card", "options": {"include_qr": True}},
+            }
+        )
+        assert result.outcome == ValidationOutcome.ACCEPTED
+        assert result.request is not None
+
+        vcard = build_vcard(result.request.identity)
+
+        assert "TITLE:R&D Lead" in vcard
+        assert "EMAIL:ada_lovelace@example.com" in vcard
+        assert "URL:https://example.com/~ada" in vcard
+        assert "ADR:;;#12 Logic St., London;;;;" in vcard
+        assert "\\" not in vcard
+        assert "textasciitilde" not in vcard
 
 
 class TestGenerateQrPng:
