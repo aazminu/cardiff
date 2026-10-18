@@ -4,9 +4,9 @@ This guide is the contributor-facing policy for the approved `business-card` tem
 
 Canonical references:
 
-- Validation contract: [validation-contract.md](/cardiff/cardiff/docs/validation-contract.md)
-- Render lifecycle and evidence model: [render-pipeline.md](/cardiff/cardiff/docs/render-pipeline.md)
-- Approved asset-root fixture notes: [README.md](/cardiff/cardiff/tests/fixtures/approved-assets/README.md)
+- Validation contract: [validation-contract.md](/cardiff/docs/validation-contract.md)
+- Render lifecycle and evidence model: [render-pipeline.md](/cardiff/docs/render-pipeline.md)
+- Approved asset-root fixture notes: [README.md](/cardiff/tests/fixtures/approved-assets/README.md)
 
 ## Approved Template Package
 
@@ -99,7 +99,7 @@ Approved path expectations:
 Repository packaging boundary:
 
 - Commit only redistributable placeholder assets, test fixtures, or openly licensed sample assets that the project is allowed to publish.
-- Keep fixture assets under an approved asset-root layout such as [README.md](/cardiff/cardiff/tests/fixtures/approved-assets/README.md).
+- Keep fixture assets under an approved asset-root layout such as [README.md](/cardiff/tests/fixtures/approved-assets/README.md).
 - Do not commit customer assets, internal brand kits, private QR payloads, or production contact data.
 - Do not commit assets that require secret delivery channels or repository-specific access controls.
 

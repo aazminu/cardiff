@@ -4,7 +4,7 @@
 
 `BOLT-001A` defines the first canonical request contract that later CLI, batch, and API adapters must reuse. The contract validates and sanitizes one single-record render request before any template rendering or TeX compilation exists.
 
-Contributor-facing business-card template guidance lives in [template-authoring.md](/cardiff/cardiff/docs/template-authoring.md). That document explains which parts of this shared contract are approved for the current open source template package.
+Contributor-facing business-card template guidance lives in [template-authoring.md](/cardiff/docs/template-authoring.md). That document explains which parts of this shared contract are approved for the current open source template package.
 
 ## Accepted Top-Level Shape
 
