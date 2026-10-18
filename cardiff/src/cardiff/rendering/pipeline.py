@@ -219,10 +219,12 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 import hashlib
 import json
 from pathlib import Path
 import re
+import tempfile
 
 from cardiff.contract.models import RenderRequest
 from cardiff.contract.sanitization import LATEX_ESCAPE_MAP, UnsafeContentError
@@ -291,49 +293,53 @@ def render_request_to_pdf(
         rendered_tex = tex_source
         evidence_tex = tex_source
 
-        if adapter.deterministic:
-            rendered_tex = resolve_qr_directives_deterministic(
-                tex_source,
-                include_qr=include_qr,
-            )
-            evidence_tex = rendered_tex
-        else:
-            evidence_tex = substitute_qr_directives(
-                tex_source,
-                include_qr=include_qr,
-                qr_tex_path=CARDIFF_QR_FILENAME,
-            )
-            if include_qr:
-                qr_work_dir = output.parent / ".cardiff-qr"
-                qr_filename = f"{output.stem}-cardiff-qr.png"
-                try:
-                    qr_work_dir.mkdir(parents=True, exist_ok=True)
-                    rendered_tex = resolve_qr_directives(
-                        tex_source,
-                        render_request.identity,
-                        include_qr=True,
-                        work_dir=qr_work_dir,
-                        qr_filename=qr_filename,
-                    )
-                except Exception as error:
-                    raise RenderingError(
-                        RenderFailureClass.TEX_COMPILE_FAILED,
-                        f"failed to prepare QR directive assets: {error}",
-                    ) from error
+        with ExitStack() as cleanup_stack:
+            if adapter.deterministic:
+                rendered_tex = resolve_qr_directives_deterministic(
+                    tex_source,
+                    include_qr=include_qr,
+                )
+                evidence_tex = rendered_tex
             else:
-                rendered_tex = evidence_tex
+                evidence_tex = substitute_qr_directives(
+                    tex_source,
+                    include_qr=include_qr,
+                    qr_tex_path=CARDIFF_QR_FILENAME,
+                )
+                if include_qr:
+                    qr_filename = f"{output.stem}-cardiff-qr.png"
+                    try:
+                        qr_work_dir = Path(
+                            cleanup_stack.enter_context(
+                                tempfile.TemporaryDirectory(prefix="cardiff-qr-")
+                            )
+                        )
+                        rendered_tex = resolve_qr_directives(
+                            tex_source,
+                            render_request.identity,
+                            include_qr=True,
+                            work_dir=qr_work_dir,
+                            qr_filename=qr_filename,
+                        )
+                    except Exception as error:
+                        raise RenderingError(
+                            RenderFailureClass.TEX_COMPILE_FAILED,
+                            f"failed to prepare QR directive assets: {error}",
+                        ) from error
+                else:
+                    rendered_tex = evidence_tex
 
-        preview_lines = _build_preview_lines(render_request, resolved_assets)
-        compile_artifact = adapter.compile(
-            rendered_tex,
-            output,
-            page_size_pt=(
-                resolved_template.descriptor.page_width_pt,
-                resolved_template.descriptor.page_height_pt,
-            ),
-            preview_lines=preview_lines,
-            title=resolved_template.descriptor.display_name,
-        )
+            preview_lines = _build_preview_lines(render_request, resolved_assets)
+            compile_artifact = adapter.compile(
+                rendered_tex,
+                output,
+                page_size_pt=(
+                    resolved_template.descriptor.page_width_pt,
+                    resolved_template.descriptor.page_height_pt,
+                ),
+                preview_lines=preview_lines,
+                title=resolved_template.descriptor.display_name,
+            )
         if (
             not compile_artifact.output_path.exists()
             or compile_artifact.output_path.stat().st_size == 0
