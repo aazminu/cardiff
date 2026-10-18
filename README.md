@@ -58,8 +58,13 @@
     <li>
       <a href="#getting-started">Getting Started</a>
       <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#quick-start">Quick Start</a></li>
+        <li><a href="#1-prerequisites">1. Prerequisites</a></li>
+        <li><a href="#2-clone-and-install">2. Clone and install</a></li>
+        <li><a href="#3-environment-setup">3. Environment setup</a></li>
+        <li><a href="#4-database-setup">4. Database setup</a></li>
+        <li><a href="#5-run-locally">5. Run locally</a></li>
+        <li><a href="#6-verify-the-setup">6. Verify the setup</a></li>
+        <li><a href="#7-troubleshooting">7. Troubleshooting</a></li>
       </ul>
     </li>
     <li><a href="#repository-layout">Repository Layout</a></li>
@@ -159,85 +164,152 @@ Current commands:
 
 ## Getting Started
 
-### Prerequisites
+### 1. Prerequisites
 
-- Python `3.12+`
-- `pip`
-- Recommended: `xelatex` on `PATH` for Unicode-safe local rendering. Without it, Cardiff falls back to the deterministic adapter, which is intended for stable ASCII-only local/test rendering and will fail on non-ASCII preview or title text.
+- **Git** to clone the repository. The repository does not pin a Git version.
+- **Python 3.12 or newer.** `cardiff/pyproject.toml` requires Python `>=3.12`; CI currently tests Python `3.12` and `3.13`.
+- **pip**, included with Python, to install the project. Cardiff's build configuration requires `setuptools>=68`.
+- The package dependencies are installed by pip: `PyYAML>=6,<7` and `segno>=1.6,<2`. The development dependency is `pytest>=8,<9`.
+- **Optional:** XeLaTeX on `PATH` for Unicode-safe real PDF rendering. No XeLaTeX version is pinned in the repository. Without it, Cardiff uses its deterministic fallback, which supports ASCII-only preview/title text.
 
-### Quick Start
-
-1. Clone the repository.
-2. Enter the Python project directory:
-
-   ```powershell
-   cd cardiff
-   ```
-
-3. Create and activate a virtual environment:
-
-   ```powershell
-   python -m venv venv
-   .\venv\Scripts\Activate.ps1
-   ```
-
-   If you are using `bash` or `zsh` instead of PowerShell:
-
-   ```bash
-   source venv/bin/activate
-   ```
-
-4. Install the package and test dependencies:
-
-   ```powershell
-   python -m pip install -e ".[dev]"
-   ```
-
-   This creates the local `cardiff` console command. The package metadata currently uses the distribution name `cardiff-cli`.
-
-5. Validate the approved sample request:
-
-   ```powershell
-   python -m cardiff validate tests/fixtures/requests/valid-request.yaml --approved-asset-root tests/fixtures/approved-assets
-   ```
-
-6. Render the approved sample PDF with the deterministic adapter:
-
-   ```powershell
-   python -m cardiff render tests/fixtures/requests/valid-request.yaml --approved-asset-root tests/fixtures/approved-assets --output tests/fixtures/approved-samples/business-card/determinism-output.pdf --deterministic
-   ```
-
-   Use `--deterministic` for stable ASCII-only fallback checks. Install `xelatex` when you need Unicode-safe local rendering.
-
-7. Run the currently stable targeted suites:
-
-   ```powershell
-   python -m pytest tests/contract -q -p no:cacheprovider
-   python -m pytest tests/rendering -q -p no:cacheprovider
-   python -m pytest tests/cli -q -p no:cacheprovider
-   ```
-
-Expected current result:
-
-- 9 contract tests pass
-- 25 rendering tests pass
-- 14 CLI tests pass
-
-These are also the targeted suites enforced by the current GitHub Actions CI and release workflows.
-
-Optional reference-comparison check:
+Before cloning the project, install Git and Python 3.12 or newer. Use the commands for your operating system:
 
 ```powershell
-python -m cardiff render tests/fixtures/requests/valid-request.yaml --approved-asset-root tests/fixtures/approved-assets --output tests/fixtures/approved-samples/business-card/determinism-output.pdf --deterministic --reference-evidence tests/fixtures/approved-samples/business-card/reference-evidence.json
+# Windows 10/11 (PowerShell with WinGet)
+winget install --id Git.Git --exact
+winget install --id Python.Python.3.12 --exact
 ```
 
-Expected optional result:
+```bash
+# macOS (with Homebrew)
+brew install git python@3.12
+```
 
-- the render succeeds
-- the reference comparison returns exit code `0`
-- the normalized manifest and canonical request fingerprints remain stable across checkout path and line-ending differences
+```bash
+# Ubuntu 24.04
+sudo apt update
+sudo apt install -y git python3.12 python3.12-venv
+```
 
-Current repo note: broad collection with `python -m pytest tests -q -p no:cacheprovider` can also fail until leftover temporary directories in the workspace are cleaned.
+On Windows without WinGet, download and run the installers from [git-scm.com](https://git-scm.com/downloads) and [python.org/downloads/](https://www.python.org/downloads/); enable **Add Python to PATH** in the Python installer. Other Linux distributions may use different package names or repositories; use their package manager to install Git and Python 3.12 or newer.
+
+#### Optional: GitHub CLI
+
+The GitHub CLI (`gh`) is not required to install or run Cardiff. It is useful for working with GitHub from a terminal—for example, viewing and checking repository issues and pull requests. On Windows with WinGet, install it with:
+
+```powershell
+winget install GitHub.cli --source winget
+```
+
+1. Open a new terminal and check that the tools are available and Python meets the minimum version:
+
+   ```powershell
+   git --version
+   python --version
+   python -m pip --version
+   ```
+
+   `python --version` must report Python 3.12 or newer. On macOS/Linux, if the command is `python3` or `python3.12`, use that command in place of `python` below.
+2. **Optional, for Unicode-safe real rendering:** install one of these TeX distributions. Each command installs the distribution or XeLaTeX package named in its comment:
+
+   ```powershell
+   # Windows: install MiKTeX with WinGet
+   winget install --id MiKTeX.MiKTeX --exact
+   ```
+
+   ```bash
+   # macOS: install MacTeX with Homebrew
+   brew install --cask mactex
+   ```
+
+   ```bash
+   # Ubuntu 24.04: install XeLaTeX from TeX Live
+   sudo apt install -y texlive-xetex
+   ```
+
+   These are package-manager installs; the Ubuntu command installs TeX Live's XeLaTeX package rather than the full TeX Live collection. You can also use the official installers for [TeX Live](https://www.tug.org/texlive/), [MacTeX](https://www.tug.org/mactex/), or [MiKTeX](https://miktex.org/). Ensure the `xelatex` executable is available on `PATH`, then check it with:
+
+   ```powershell
+   xelatex --version
+   ```
+
+   This is not required for the deterministic ASCII-only rendering path.
+
+Node.js, PHP, Composer, and a database are not part of the current project stack.
+
+### 2. Clone and install
+
+From the directory where you keep your source code, clone the repository and enter the Python package directory:
+
+```powershell
+git clone https://github.com/zcalifornia-ph/cardiff.git
+cd cardiff\cardiff
+```
+
+Create and activate a virtual environment, then install Cardiff and its test dependencies:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+```
+
+For Bash or Zsh, activate the same virtual environment with:
+
+```bash
+source .venv/bin/activate
+```
+
+This command installs Cardiff in editable mode along with its declared runtime dependencies (`PyYAML` and `segno`) and development test dependency (`pytest`). It provides the `cardiff` command; the distribution name in package metadata is `cardiff-cli`.
+
+### 3. Environment setup
+
+There is no `.env.example` file, and the current CLI does not require runtime environment variables or secrets. No `.env` file needs to be created.
+
+| Variable | Purpose | Secret? | Where to get its value |
+| --- | --- | --- | --- |
+| None defined | The current CLI has no environment-variable configuration. | N/A | No value required. |
+
+### 4. Database setup
+
+The current project does not use a database and contains no database configuration, migrations, or seeders. There is no database to create and no default account for testing. The sample request in `tests/fixtures/requests/valid-request.yaml` is test input, not an account.
+
+### 5. Run locally
+
+Cardiff currently runs as a command-line tool; it does not start a development server or provide a local web URL. From the `cardiff/` package directory, validate the checked-in sample request:
+
+```powershell
+python -m cardiff validate tests/fixtures/requests/valid-request.yaml --approved-asset-root tests/fixtures/approved-assets
+```
+
+Render the same request to a PDF using the deterministic adapter:
+
+```powershell
+python -m cardiff render tests/fixtures/requests/valid-request.yaml --approved-asset-root tests/fixtures/approved-assets --output output/business-card.pdf --deterministic
+```
+
+The PDF is written to `output/business-card.pdf`. Use the `cardiff` command instead of `python -m cardiff` if you prefer the installed console entry point.
+
+### 6. Verify the setup
+
+The validation command should print a JSON success status and exit with code `0`. The render command should report success and create the PDF at the requested output path.
+
+Run the targeted test suites used by GitHub Actions CI:
+
+```powershell
+python -m pytest tests/contract -q -p no:cacheprovider
+python -m pytest tests/rendering -q -p no:cacheprovider
+python -m pytest tests/cli -q -p no:cacheprovider
+```
+
+The checked-in verification baseline is 9 contract, 25 rendering, and 14 CLI tests passing.
+
+### 7. Troubleshooting
+
+- **Python version is too old:** confirm Python is `3.12+`, then create the virtual environment with that interpreter and reinstall the package dependencies.
+- **PowerShell cannot find `cardiff` or `cardiff` runs the wrong Python:** activate `.venv` in the `cardiff/` package directory, or run the documented `python -m cardiff` commands there.
+- **Non-ASCII text fails to render:** install XeLaTeX and ensure `xelatex` is on `PATH`, or use `--deterministic` only with ASCII-only preview/title text.
+- **Tests fail during broad collection due to temporary directories:** run the three targeted test commands above. The CI workflow removes transient test directories before running them; a broad `python -m pytest tests -q -p no:cacheprovider` run may encounter leftover temporary directories.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
