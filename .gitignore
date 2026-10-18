@@ -9,3 +9,19 @@ cardiff.egg-info/
 dump/
 
 .venv
+
+# Local credentials - never commit
+.env
+.env.*
+.california-agentic/
+.claude/
+.codex/
+.gemini/
+.gitignore-sample
+.qwen/
+.vscode/
+CLAUDE.md
+GEMINI.md
+QWEN.md
+vicente.ps1
+/prompts.md
