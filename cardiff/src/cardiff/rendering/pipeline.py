@@ -22,7 +22,11 @@ from .models import (
     RenderStatus,
     RenderingError,
 )
-from .templates import resolve_asset_paths, resolve_template
+from .templates import (
+    resolve_asset_paths,
+    resolve_template,
+    validate_required_identity_fields,
+)
 from .tex import BaseTeXAdapter, get_default_tex_adapter
 
 PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([a-z0-9_]+)\s*\}\}")
@@ -46,6 +50,7 @@ def render_request_to_pdf(
             render_request.template,
             template_root=template_root,
         )
+        validate_required_identity_fields(render_request, resolved_template)
         resolved_assets = resolve_asset_paths(
             render_request,
             resolved_template,

@@ -15,7 +15,12 @@ from .models import (
     TemplateDescriptor,
 )
 from .pipeline import render_request_to_pdf
-from .templates import get_default_template_root, resolve_asset_paths, resolve_template
+from .templates import (
+    get_default_template_root,
+    resolve_asset_paths,
+    resolve_template,
+    validate_required_identity_fields,
+)
 from .tex import DeterministicTeXAdapter, XeLaTeXAdapter, get_default_tex_adapter
 
 __all__ = [
@@ -36,4 +41,5 @@ __all__ = [
     "resolve_qr_directives",
     "resolve_qr_directives_deterministic",
     "resolve_template",
+    "validate_required_identity_fields",
 ]
