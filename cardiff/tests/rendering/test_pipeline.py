@@ -842,3 +842,56 @@ def test_non_deterministic_qr_render_cleans_up_qr_image_after_compile_failure(tm
     assert list(tmp_path.rglob("*-cardiff-qr.png")) == []
     assert list(tmp_path.iterdir()) == []
 
+
+class FailingOutputWriteAdapter(BaseTeXAdapter):
+    runtime_name = "failing-output-write-adapter"
+    runtime_version = "1"
+    deterministic = True
+
+    def compile(
+        self,
+        tex_source: str,
+        output_path: str | Path,
+        *,
+        page_size_pt: tuple[float, float],
+        preview_lines: tuple[str, ...],
+        title: str,
+    ) -> TeXCompileArtifact:
+        raise PermissionError("simulated locked output file")
+
+
+def test_render_to_existing_directory_returns_render_output_invalid_without_raising(tmp_path):
+    request = _load_request()
+    output_dir = tmp_path / "out.pdf"
+    output_dir.mkdir()
+
+    result = render_request_to_pdf(
+        request,
+        output_dir,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=DeterministicTeXAdapter(),
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.RENDER_OUTPUT_INVALID
+    assert result.output_path is None
+    assert any(output_dir.as_posix() in message for message in result.diagnostics)
+
+
+def test_adapter_output_write_oserror_returns_render_output_invalid(tmp_path):
+    request = _load_request()
+    output_path = tmp_path / "locked.pdf"
+
+    result = render_request_to_pdf(
+        request,
+        output_path,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=FailingOutputWriteAdapter(),
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.RENDER_OUTPUT_INVALID
+    assert result.output_path is None
+    assert any(output_path.as_posix() in message for message in result.diagnostics)
+    assert any("simulated locked output file" in message for message in result.diagnostics)
+
