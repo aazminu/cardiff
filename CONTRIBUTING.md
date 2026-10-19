@@ -108,15 +108,16 @@ python -m pytest tests/cli -q -p no:cacheprovider
 ```
 
 These are the same suites enforced by `.github/workflows/ci.yml` and rerun by `.github/workflows/release.yml`.
+`ci.yml` runs them on both `ubuntu-latest` and `windows-latest` for Python `3.12` and `3.13`, after installing XeLaTeX (TeX Live on Ubuntu, MiKTeX on Windows). As a result, Windows-only tests such as `test_windows_drive_relative_paths_are_rejected` and the XeLaTeX compile tests run in CI instead of being skipped. `release.yml` still verifies on `ubuntu-latest` only, without XeLaTeX.
 
 The broad `python -m pytest tests -q -p no:cacheprovider` command can currently fail if temporary QR work directories or other stray temp directories are still present in the workspace.
 Clean those directories before relying on broad test collection.
 
-Expected current result:
+Expected current result with `xelatex` on `PATH`:
 
-- `tests/contract`: `9 passed`
-- `tests/rendering`: `25 passed`
-- `tests/cli`: `14 passed`
+- `tests/contract`: `50 passed, 1 skipped` (`51 passed` on Windows, where the drive-relative path test also runs)
+- `tests/rendering`: `46 passed` (`42 passed, 4 skipped` without `xelatex` on `PATH`)
+- `tests/cli`: `19 passed`
 
 Release automation note:
 

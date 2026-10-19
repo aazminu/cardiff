@@ -233,7 +233,6 @@ APPROVED_SAMPLES = FIXTURES_ROOT / 'approved-samples' / 'business-card'
 REFERENCE_EVIDENCE = APPROVED_SAMPLES / 'reference-evidence.json'
 VALID_REQUEST = FIXTURES_ROOT / 'requests' / 'valid-request.yaml'
 INVALID_REQUEST = FIXTURES_ROOT / 'requests' / 'invalid-request-missing-email.yaml'
-OUTPUT_PATH = APPROVED_SAMPLES / 'determinism-output.pdf'
 INVALID_OUTPUT_PATH = APPROVED_SAMPLES / 'invalid-render-output.pdf'
 
 
@@ -305,7 +304,8 @@ def test_validate_command_rejects_relative_assets_without_approved_roots():
     assert 'Validation rejected' in stderr
 
 
-def test_render_command_writes_the_requested_pdf_and_reports_runtime_metadata():
+def test_render_command_writes_the_requested_pdf_and_reports_runtime_metadata(tmp_path):
+    output_path = tmp_path / 'determinism-output.pdf'
     exit_code, payload, stderr = _run_cli(
         [
             'render',
@@ -313,7 +313,7 @@ def test_render_command_writes_the_requested_pdf_and_reports_runtime_metadata():
             '--approved-asset-root',
             APPROVED_ASSETS.as_posix(),
             '--output',
-            OUTPUT_PATH.as_posix(),
+            output_path.as_posix(),
             '--deterministic',
         ]
     )
@@ -324,12 +324,12 @@ def test_render_command_writes_the_requested_pdf_and_reports_runtime_metadata():
     assert payload['template_id'] == 'business-card'
     assert payload['runtime']['name'] == 'deterministic-tex-adapter'
     assert payload['runtime']['version'] == '1'
-    assert payload['output_path'] == OUTPUT_PATH.as_posix()
-    assert OUTPUT_PATH.read_bytes().startswith(b'%PDF-1.4')
+    assert payload['output_path'] == output_path.as_posix()
+    assert output_path.read_bytes().startswith(b'%PDF-1.4')
     assert 'Rendered' in stderr
 
 
-def test_render_command_can_compare_against_reference_evidence():
+def test_render_command_can_compare_against_reference_evidence(tmp_path):
     exit_code, payload, _ = _run_cli(
         [
             'render',
@@ -337,7 +337,7 @@ def test_render_command_can_compare_against_reference_evidence():
             '--approved-asset-root',
             APPROVED_ASSETS.as_posix(),
             '--output',
-            OUTPUT_PATH.as_posix(),
+            (tmp_path / 'determinism-output.pdf').as_posix(),
             '--deterministic',
             '--reference-evidence',
             REFERENCE_EVIDENCE.as_posix(),

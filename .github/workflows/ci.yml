@@ -11,12 +11,17 @@ permissions:
 
 jobs:
   test:
-    name: Test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.12", "3.13"]
+    defaults:
+      run:
+        # windows-latest defaults to PowerShell; the cleanup step needs bash.
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +34,37 @@ jobs:
       - name: Install dependencies
         working-directory: cardiff
         run: pip install -e ".[dev]"
+
+      # Install the TeX distribution README.md recommends for each OS so the
+      # XeLaTeX compile tests run instead of being skipped.
+      - name: Install XeLaTeX (TeX Live)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y texlive-xetex
+
+      - name: Install XeLaTeX (MiKTeX)
+        if: runner.os == 'Windows'
+        run: |
+          choco install miktex --no-progress -y
+          miktex_bin='/c/Program Files/MiKTeX/miktex/bin/x64'
+          export PATH="$miktex_bin:$PATH"
+          # Fetch the package database and updates as the administrator, then
+          # install missing LaTeX packages on demand instead of prompting.
+          miktex --admin packages update-package-database
+          miktex --admin packages update
+          initexmf --admin --set-config-value='[MPM]AutoInstall=1'
+          cygpath -w "$miktex_bin" >> "$GITHUB_PATH"
+
+      # Compile once outside pytest so a broken TeX setup fails here with the
+      # full XeLaTeX log, and first-run setup does not happen inside a test.
+      - name: Check XeLaTeX compiles a document
+        working-directory: ${{ runner.temp }}
+        run: |
+          printf '%s\n' '\documentclass{article}' '\usepackage{geometry}' \
+            '\usepackage{graphicx}' '\begin{document}' 'Cardiff' '\end{document}' \
+            > xelatex-check.tex
+          xelatex -interaction=nonstopmode -halt-on-error xelatex-check.tex
 
       - name: Clean transient test work directories
         working-directory: cardiff
