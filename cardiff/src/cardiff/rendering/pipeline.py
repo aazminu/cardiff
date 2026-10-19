@@ -286,7 +286,15 @@ def render_request_to_pdf(
             ) from error
 
         placeholder_values = _build_placeholder_values(render_request, resolved_assets)
-        template_source = resolved_template.entrypoint_path.read_text(encoding="utf-8")
+        try:
+            template_source = resolved_template.entrypoint_path.read_text(
+                encoding="utf-8"
+            )
+        except (OSError, UnicodeDecodeError) as error:
+            raise RenderingError(
+                RenderFailureClass.TEMPLATE_MANIFEST_INVALID,
+                f"failed to load template entrypoint '{resolved_template.entrypoint_path.as_posix()}': {error}",
+            ) from error
         tex_source = _render_template_source(template_source, placeholder_values)
 
         include_qr = bool(render_request.template.options.get("include_qr", False))

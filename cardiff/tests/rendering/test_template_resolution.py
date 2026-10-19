@@ -226,13 +226,14 @@ import pytest
 
 from cardiff.contract import load_and_validate_request
 from cardiff.contract.errors import ValidationOutcome
-from cardiff.contract.models import TemplateSelection
+from cardiff.contract.models import AssetReference, TemplateSelection
 from cardiff.rendering import (
     DeterministicTeXAdapter,
     RenderFailureClass,
     RenderStatus,
     get_default_template_root,
     render_request_to_pdf,
+    resolve_asset_paths,
     resolve_template,
 )
 from cardiff.rendering.tex import BaseTeXAdapter, TeXCompileArtifact
@@ -454,3 +455,217 @@ def test_manifest_listing_unknown_identity_field_is_invalid(tmp_path):
     assert result.status == RenderStatus.FAILED
     assert result.failure_class == RenderFailureClass.TEMPLATE_MANIFEST_INVALID
     assert any("'fax'" in message for message in result.diagnostics)
+
+
+def test_relative_asset_path_resolving_to_directory_fails(tmp_path: Path):
+    request = _load_request()
+    asset_root = tmp_path / "assets"
+    (asset_root / "brand" / "logo.png").mkdir(parents=True)
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        approved_asset_roots=(asset_root,),
+        tex_adapter=DeterministicTeXAdapter(),
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEMPLATE_ASSET_MISSING
+    assert result.to_dict()["failure_class"] == "template_asset_missing"
+
+
+def test_absolute_asset_path_pointing_to_directory_fails(tmp_path: Path):
+    request = _load_request()
+    asset_root = tmp_path / "assets"
+    asset_dir = asset_root / "brand" / "logo.png"
+    asset_dir.mkdir(parents=True)
+    request = replace(
+        request,
+        assets={"logo": AssetReference("logo", asset_dir.as_posix())},
+    )
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        approved_asset_roots=(asset_root,),
+        tex_adapter=DeterministicTeXAdapter(),
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEMPLATE_ASSET_MISSING
+    assert result.to_dict()["failure_class"] == "template_asset_missing"
+    assert any("is not a regular file" in message for message in result.diagnostics)
+
+
+def test_asset_resolution_skips_directory_and_resolves_file_from_second_root(tmp_path: Path):
+    request = _load_request()
+    root1 = tmp_path / "root1"
+    root2 = tmp_path / "root2"
+    root1.mkdir()
+    root2.mkdir()
+
+    (root1 / "logo.png").mkdir()
+    logo_file = root2 / "logo.png"
+    logo_file.write_bytes(b"png-bytes")
+
+    request = replace(
+        request,
+        assets={"logo": AssetReference("logo", "logo.png")},
+    )
+
+    resolved_template = resolve_template(request.template)
+    resolved_assets = resolve_asset_paths(
+        request,
+        resolved_template,
+        approved_asset_roots=(root1, root2),
+    )
+    assert resolved_assets["logo"] == logo_file.resolve()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        approved_asset_roots=(root1, root2),
+        tex_adapter=DeterministicTeXAdapter(),
+    )
+    assert result.status == RenderStatus.SUCCEEDED
+
+
+@pytest.mark.parametrize(
+    "raw_manifest",
+    [
+        "[]",
+        '"business-card"',
+        "123",
+        "null",
+    ],
+)
+def test_non_object_manifest_is_classified_as_template_manifest_invalid(
+    tmp_path,
+    raw_manifest,
+):
+    request = _load_request()
+    template_root = _copy_template_with_manifest(tmp_path)
+    (template_root / "business-card" / "manifest.json").write_text(
+        raw_manifest,
+        encoding="utf-8",
+    )
+    adapter = RecordingAdapter()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        template_root=template_root,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEMPLATE_MANIFEST_INVALID
+    assert adapter.compile_calls == 0
+    assert any("JSON object" in message for message in result.diagnostics)
+
+
+@pytest.mark.parametrize(
+    ("manifest_updates", "expected_field"),
+    [
+        ({"manifest_version": True}, "manifest_version"),
+        ({"manifest_version": False}, "manifest_version"),
+        ({"page_width_in": True}, "page_width_in"),
+        ({"page_height_in": False}, "page_height_in"),
+        ({"page_width_in": 0}, "page_width_in"),
+        ({"page_width_in": -3.5}, "page_width_in"),
+        ({"page_height_in": 0.0}, "page_height_in"),
+        ({"page_height_in": -2}, "page_height_in"),
+        ({"page_width_in": float("nan")}, "page_width_in"),
+        ({"page_width_in": float("inf")}, "page_width_in"),
+        ({"page_height_in": float("-inf")}, "page_height_in"),
+    ],
+)
+def test_malformed_manifest_numeric_fields_are_classified_as_template_manifest_invalid(
+    tmp_path,
+    manifest_updates,
+    expected_field,
+):
+    request = _load_request()
+    template_root = _copy_template_with_manifest(tmp_path, **manifest_updates)
+    adapter = RecordingAdapter()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        template_root=template_root,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEMPLATE_MANIFEST_INVALID
+    assert adapter.compile_calls == 0
+    assert any(expected_field in message for message in result.diagnostics)
+
+
+def test_integer_page_dimensions_are_accepted(tmp_path):
+    request = _load_request()
+    template_root = _copy_template_with_manifest(
+        tmp_path,
+        page_width_in=4,
+        page_height_in=2,
+    )
+    adapter = RecordingAdapter()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        template_root=template_root,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.SUCCEEDED
+    assert adapter.compile_calls == 1
+    assert result.evidence is not None
+    assert result.evidence.page_width_pt == 288.0
+    assert result.evidence.page_height_pt == 144.0
+
+
+def test_non_utf8_entrypoint_is_classified_as_template_manifest_invalid(tmp_path):
+    request = _load_request()
+    template_root = _copy_template_with_manifest(tmp_path)
+    entrypoint_path = template_root / "business-card" / "card.tex"
+    entrypoint_path.write_bytes(b"\xff\xfe{{ full_name }}")
+    adapter = RecordingAdapter()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        template_root=template_root,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEMPLATE_MANIFEST_INVALID
+    assert adapter.compile_calls == 0
+    assert any("card.tex" in message for message in result.diagnostics)
+
+
+def test_non_utf8_manifest_is_classified_as_template_manifest_invalid(tmp_path):
+    request = _load_request()
+    template_root = _copy_template_with_manifest(tmp_path)
+    manifest_path = template_root / "business-card" / "manifest.json"
+    manifest_path.write_bytes(b"\xff\xfe{}")
+    adapter = RecordingAdapter()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        template_root=template_root,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEMPLATE_MANIFEST_INVALID
+    assert adapter.compile_calls == 0
+    assert any("manifest.json" in message for message in result.diagnostics)
+
