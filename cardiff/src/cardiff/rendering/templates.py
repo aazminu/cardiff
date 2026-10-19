@@ -428,10 +428,15 @@ def _resolve_asset_reference(slot: str, raw_path: str, approved_roots: tuple[Pat
                 RenderFailureClass.TEMPLATE_ASSET_MISSING,
                 f"asset '{slot}' is outside the approved asset roots",
             )
-        if not resolved.is_file():
+        if not resolved.exists():
             raise RenderingError(
                 RenderFailureClass.TEMPLATE_ASSET_MISSING,
                 f"asset '{slot}' does not exist at '{resolved.as_posix()}'",
+            )
+        if not resolved.is_file():
+            raise RenderingError(
+                RenderFailureClass.TEMPLATE_ASSET_MISSING,
+                f"asset '{slot}' is not a regular file at '{resolved.as_posix()}'",
             )
         return resolved
 

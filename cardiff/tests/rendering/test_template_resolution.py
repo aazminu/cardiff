@@ -494,6 +494,7 @@ def test_absolute_asset_path_pointing_to_directory_fails(tmp_path: Path):
     assert result.status == RenderStatus.FAILED
     assert result.failure_class == RenderFailureClass.TEMPLATE_ASSET_MISSING
     assert result.to_dict()["failure_class"] == "template_asset_missing"
+    assert any("is not a regular file" in message for message in result.diagnostics)
 
 
 def test_asset_resolution_skips_directory_and_resolves_file_from_second_root(tmp_path: Path):
