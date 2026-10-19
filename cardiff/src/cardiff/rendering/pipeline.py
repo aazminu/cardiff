@@ -222,6 +222,7 @@ from __future__ import annotations
 from contextlib import ExitStack
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import tempfile
@@ -350,6 +351,10 @@ def render_request_to_pdf(
                     title=resolved_template.descriptor.display_name,
                 )
             except OSError as error:
+                # Only errors raised for the output file itself are output
+                # failures; any other adapter OSError keeps propagating.
+                if not _oserror_names_path(error, output):
+                    raise
                 raise RenderingError(
                     RenderFailureClass.RENDER_OUTPUT_INVALID,
                     f"failed to write output PDF '{output.as_posix()}': {error}",
@@ -511,3 +516,13 @@ def _canonical_json_text(payload: object) -> str:
 
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def _oserror_names_path(error: OSError, path: Path) -> bool:
+    target = os.path.normcase(os.path.abspath(path))
+    for name in (error.filename, error.filename2):
+        if isinstance(name, (str, bytes, os.PathLike)) and (
+            os.path.normcase(os.path.abspath(os.fsdecode(name))) == target
+        ):
+            return True
+    return False
