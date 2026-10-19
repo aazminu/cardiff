@@ -354,7 +354,7 @@ def _identity_field_present(value: object) -> bool:
 def _load_descriptor(manifest_path: Path) -> TemplateDescriptor:
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
         raise RenderingError(
             RenderFailureClass.TEMPLATE_MANIFEST_INVALID,
             f"failed to load template manifest '{manifest_path.as_posix()}': {error}",

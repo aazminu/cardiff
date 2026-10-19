@@ -574,3 +574,24 @@ def test_non_utf8_entrypoint_is_classified_as_template_manifest_invalid(tmp_path
     assert adapter.compile_calls == 0
     assert any("card.tex" in message for message in result.diagnostics)
 
+
+def test_non_utf8_manifest_is_classified_as_template_manifest_invalid(tmp_path):
+    request = _load_request()
+    template_root = _copy_template_with_manifest(tmp_path)
+    manifest_path = template_root / "business-card" / "manifest.json"
+    manifest_path.write_bytes(b"\xff\xfe{}")
+    adapter = RecordingAdapter()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        template_root=template_root,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEMPLATE_MANIFEST_INVALID
+    assert adapter.compile_calls == 0
+    assert any("manifest.json" in message for message in result.diagnostics)
+
