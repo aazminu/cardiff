@@ -221,6 +221,7 @@ from __future__ import annotations
 
 from dataclasses import fields
 import json
+import math
 from pathlib import Path
 
 from cardiff.contract.models import IdentityProfile, RenderRequest, TemplateSelection
@@ -359,6 +360,12 @@ def _load_descriptor(manifest_path: Path) -> TemplateDescriptor:
             f"failed to load template manifest '{manifest_path.as_posix()}': {error}",
         ) from error
 
+    if not isinstance(payload, dict):
+        raise RenderingError(
+            RenderFailureClass.TEMPLATE_MANIFEST_INVALID,
+            f"template manifest '{manifest_path.as_posix()}' must be a JSON object",
+        )
+
     required_fields = {
         "template_id": str,
         "manifest_version": int,
@@ -370,10 +377,24 @@ def _load_descriptor(manifest_path: Path) -> TemplateDescriptor:
     }
     for field_name, expected_type in required_fields.items():
         value = payload.get(field_name)
-        if not isinstance(value, expected_type):
+        if isinstance(value, bool) or not isinstance(value, expected_type):
             raise RenderingError(
                 RenderFailureClass.TEMPLATE_MANIFEST_INVALID,
                 f"manifest field '{field_name}' is missing or has the wrong type",
+            )
+
+    for dimension_field in ("page_width_in", "page_height_in"):
+        try:
+            dimension_value = float(payload[dimension_field])
+        except OverflowError as error:
+            raise RenderingError(
+                RenderFailureClass.TEMPLATE_MANIFEST_INVALID,
+                f"manifest field '{dimension_field}' must be a finite number greater than zero",
+            ) from error
+        if not math.isfinite(dimension_value) or dimension_value <= 0:
+            raise RenderingError(
+                RenderFailureClass.TEMPLATE_MANIFEST_INVALID,
+                f"manifest field '{dimension_field}' must be a finite number greater than zero",
             )
 
     if payload["output_format"] != "pdf":

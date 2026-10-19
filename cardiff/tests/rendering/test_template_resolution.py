@@ -454,3 +454,123 @@ def test_manifest_listing_unknown_identity_field_is_invalid(tmp_path):
     assert result.status == RenderStatus.FAILED
     assert result.failure_class == RenderFailureClass.TEMPLATE_MANIFEST_INVALID
     assert any("'fax'" in message for message in result.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "raw_manifest",
+    [
+        "[]",
+        '"business-card"',
+        "123",
+        "null",
+    ],
+)
+def test_non_object_manifest_is_classified_as_template_manifest_invalid(
+    tmp_path,
+    raw_manifest,
+):
+    request = _load_request()
+    template_root = _copy_template_with_manifest(tmp_path)
+    (template_root / "business-card" / "manifest.json").write_text(
+        raw_manifest,
+        encoding="utf-8",
+    )
+    adapter = RecordingAdapter()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        template_root=template_root,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEMPLATE_MANIFEST_INVALID
+    assert adapter.compile_calls == 0
+    assert any("JSON object" in message for message in result.diagnostics)
+
+
+@pytest.mark.parametrize(
+    ("manifest_updates", "expected_field"),
+    [
+        ({"manifest_version": True}, "manifest_version"),
+        ({"manifest_version": False}, "manifest_version"),
+        ({"page_width_in": True}, "page_width_in"),
+        ({"page_height_in": False}, "page_height_in"),
+        ({"page_width_in": 0}, "page_width_in"),
+        ({"page_width_in": -3.5}, "page_width_in"),
+        ({"page_height_in": 0.0}, "page_height_in"),
+        ({"page_height_in": -2}, "page_height_in"),
+        ({"page_width_in": float("nan")}, "page_width_in"),
+        ({"page_width_in": float("inf")}, "page_width_in"),
+        ({"page_height_in": float("-inf")}, "page_height_in"),
+    ],
+)
+def test_malformed_manifest_numeric_fields_are_classified_as_template_manifest_invalid(
+    tmp_path,
+    manifest_updates,
+    expected_field,
+):
+    request = _load_request()
+    template_root = _copy_template_with_manifest(tmp_path, **manifest_updates)
+    adapter = RecordingAdapter()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        template_root=template_root,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEMPLATE_MANIFEST_INVALID
+    assert adapter.compile_calls == 0
+    assert any(expected_field in message for message in result.diagnostics)
+
+
+def test_integer_page_dimensions_are_accepted(tmp_path):
+    request = _load_request()
+    template_root = _copy_template_with_manifest(
+        tmp_path,
+        page_width_in=4,
+        page_height_in=2,
+    )
+    adapter = RecordingAdapter()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        template_root=template_root,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.SUCCEEDED
+    assert adapter.compile_calls == 1
+    assert result.evidence is not None
+    assert result.evidence.page_width_pt == 288.0
+    assert result.evidence.page_height_pt == 144.0
+
+
+def test_non_utf8_entrypoint_is_classified_as_template_manifest_invalid(tmp_path):
+    request = _load_request()
+    template_root = _copy_template_with_manifest(tmp_path)
+    entrypoint_path = template_root / "business-card" / "card.tex"
+    entrypoint_path.write_bytes(b"\xff\xfe{{ full_name }}")
+    adapter = RecordingAdapter()
+
+    result = render_request_to_pdf(
+        request,
+        tmp_path / "card.pdf",
+        template_root=template_root,
+        approved_asset_roots=(APPROVED_ASSETS,),
+        tex_adapter=adapter,
+    )
+
+    assert result.status == RenderStatus.FAILED
+    assert result.failure_class == RenderFailureClass.TEMPLATE_MANIFEST_INVALID
+    assert adapter.compile_calls == 0
+    assert any("card.tex" in message for message in result.diagnostics)
+
